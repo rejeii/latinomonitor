@@ -1,10 +1,9 @@
 name: LatinoGG Monitor
 
 on:
-  schedule:
-    # A cada 6h — 02:00, 08:00, 14:00, 20:00 (horário de Brasília) = 05/11/17/23 UTC
-    - cron: '0 5,11,17,23 * * *'
-  workflow_dispatch: {}   # botão "Run workflow" na aba Actions
+  # Agendamento é EXTERNO (cron-job.org dispara via workflow_dispatch a cada 6h).
+  # Isso evita o auto-disable de 60 dias do schedule nativo do GitHub.
+  workflow_dispatch: {}   # botão "Run workflow" na aba Actions + disparo do cron-job.org
 
 jobs:
   monitor:

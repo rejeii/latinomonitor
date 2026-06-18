@@ -55,14 +55,22 @@ de um produto só define o baseline (não alerta).
    - `DISCORD_WEBHOOK_ESGOTADOS` (opcional — se não criar, usa o de preços)
    - `DISCORD_WEBHOOK_INICIO` (opcional — recebe um aviso quando cada run começa)
 3. Na aba **Variables** (ao lado de Secrets), crie a variável `PRICE_THRESHOLD` = `10` (opcional).
-4. Pronto: roda **a cada 6h** — 02:00, 08:00, 14:00 e 20:00 (horário de Brasília). Para rodar agora,
-   vá em **Actions → LatinoGG Monitor → Run workflow**.
+4. Para rodar agora, vá em **Actions → LatinoGG Monitor → Run workflow**.
 
-Para mudar o horário, edite o `cron` em [`.github/workflows/monitor.yml`](.github/workflows/monitor.yml)
-(está em UTC; a cada 6h ancorado em 08:00 BRT = `0 5,11,17,23 * * *`).
+### Agendamento (externo, via cron-job.org)
 
-> ⚠️ O GitHub **desativa o agendamento após 60 dias sem commits** no repo (os runs não contam).
-> Ele avisa por email e reativar é 1 clique — ou peça um "keepalive" automático.
+O agendamento é feito **fora do GitHub**, pelo [cron-job.org](https://cron-job.org), que dispara o
+workflow a cada 6h chamando a API de `workflow_dispatch`:
+
+```
+POST https://api.github.com/repos/rejeii/latinomonitor/actions/workflows/monitor.yml/dispatches
+Header: Authorization: Bearer <PAT fine-grained, repo-scoped, Actions: read/write>
+Body:   {"ref":"main"}
+```
+
+> Por que externo: o `schedule:` nativo do GitHub **desativa após 60 dias sem commits**.
+> Disparando de fora via `workflow_dispatch`, isso nunca acontece.
+> O PAT deve ser **fine-grained**, restrito a este repo, com permissão mínima **Actions: Read and write**.
 
 ---
 
