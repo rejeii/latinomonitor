@@ -7,7 +7,7 @@
 
 import { chromium } from 'playwright-extra';
 import StealthPlugin from 'puppeteer-extra-plugin-stealth';
-import { buscarProdutos, atualizarProduto } from './notion.js';
+import { buscarProdutos, atualizarProduto, buscarNomesDatabases } from './notion.js';
 import { scrapeProduto } from './scrapers.js';
 import { calcPriceChange } from './priceChange.js';
 import { enviarLotePrecos, enviarLoteEsgotados, enviarResumo, enviarErro, NOMES } from './discord.js';
@@ -44,8 +44,15 @@ async function main() {
   const precoAlerts    = [];   // { produto, preco, delta }  (subiu OU desceu)
   const esgotadoAlerts = [];   // { produto }  (apenas novas transições)
 
-  const stats = {};
-  const bump  = (forn, key) => { (stats[forn] ??= { ok:0, preco:0, esgotado:0, erro:0, bloqueado:0 })[key]++; };
+  const nomesDb = await buscarNomesDatabases();
+  const labelDb = id => nomesDb[id] || id.slice(0, 8);
+
+  const stats   = {};
+  const statsDb = {};
+  const novo    = () => ({ ok:0, preco:0, esgotado:0, esgNovo:0, erro:0, bloqueado:0 });
+  const bump    = (forn, key) => { (stats[forn]   ??= novo())[key]++; };
+  const bumpDb  = (dbId, key) => { (statsDb[dbId] ??= novo())[key]++; };
+  const conta   = (p, key)    => { bump(p.fornecedor, key); bumpDb(p.dbId, key); };
 
   let est = 0, precoAlt = 0, esgotadoTot = 0, esgotadoNovo = 0, erros = 0, bloqueados = 0;
 
@@ -56,13 +63,13 @@ async function main() {
       // ── Bloqueado (Cloudflare não liberou) ──
       if (blocked) {
         log('[BLOQUEADO]', tag(produto), produto.nome);
-        bloqueados++; bump(produto.fornecedor, 'bloqueado');
+        bloqueados++; conta(produto, 'bloqueado');
         await sleep(DELAY_MS); continue;
       }
 
       // ── Esgotado: escreve SEMPRE; alerta só na transição ──
       if (status === 'Esgotado') {
-        esgotadoTot++; bump(produto.fornecedor, 'esgotado');
+        esgotadoTot++; conta(produto, 'esgotado');
         await atualizarProduto(produto.pageId, {
           'Status': { select: { name: 'Esgotado' } },
           'Data':   { date: { start: new Date().toISOString() } },
@@ -70,7 +77,7 @@ async function main() {
         if (produto.status !== 'Esgotado') {
           log('[ESGOTADO]', tag(produto), produto.nome);
           esgotadoAlerts.push({ produto });
-          esgotadoNovo++;
+          esgotadoNovo++; conta(produto, 'esgNovo');
         } else {
           log('[esgotado]', tag(produto), produto.nome);
         }
@@ -80,7 +87,7 @@ async function main() {
       // ── Sem preço (falha de leitura) ──
       if (!price || price <= 0) {
         log('[SEM PREÇO]', tag(produto), produto.nome);
-        erros++; bump(produto.fornecedor, 'erro');
+        erros++; conta(produto, 'erro');
         await sleep(DELAY_MS); continue;
       }
 
@@ -99,15 +106,15 @@ async function main() {
         log('[ALERTA ' + seta + ']', tag(produto), produto.nome,
             `— R$${price.toFixed(2)} (ref R$${(produto.custoRef ?? 0).toFixed(2)}, Δ R$${change.delta.toFixed(2)})`);
         precoAlerts.push({ produto, preco: price, delta: change.delta });
-        precoAlt++; bump(produto.fornecedor, 'preco');
+        precoAlt++; conta(produto, 'preco');
       } else {
         log('[ok]', tag(produto), produto.nome, `— R$${price.toFixed(2)}`);
-        est++; bump(produto.fornecedor, 'ok');
+        est++; conta(produto, 'ok');
       }
 
     } catch (e) {
       log('[ERRO]', tag(produto), produto.nome, '—', e.message);
-      erros++; bump(produto.fornecedor, 'erro');
+      erros++; conta(produto, 'erro');
     }
     await sleep(DELAY_MS);
   }
@@ -123,12 +130,17 @@ async function main() {
   }
 
   // ── Resumo ──
+  const novosPorDb = Object.entries(statsDb)
+    .filter(([, s]) => s.esgNovo > 0)
+    .map(([id, s]) => `${labelDb(id)}: ${s.esgNovo}`)
+    .join(', ');
+
   const totais =
     `Limite de alerta: R$${PRICE_THRESHOLD}\n` +
     `Total verificado: ${produtos.length}\n` +
     `✅ Estáveis: ${est}\n` +
     `📈 Preço alterado: ${precoAlt}\n` +
-    `🚫 Esgotados: ${esgotadoTot} (${esgotadoNovo} novos)\n` +
+    `🚫 Esgotados: ${esgotadoTot} (${esgotadoNovo} novos${novosPorDb ? ' — ' + novosPorDb : ''})\n` +
     `⛔ Bloqueados: ${bloqueados}\n` +
     `❌ Erros: ${erros}`;
 
@@ -136,7 +148,11 @@ async function main() {
     `• ${NOMES[f] || f}: ${s.ok} ok · ${s.preco} alt · ${s.esgotado} esg · ${s.bloqueado} bloq · ${s.erro} erro`
   ).join('\n');
 
-  const resumo = totais + '\n\nPor fornecedor:\n' + porFornecedor;
+  const porDatabase = Object.entries(statsDb).map(([id, s]) =>
+    `• ${labelDb(id)}: ${s.ok} ok · ${s.preco} alt · ${s.esgotado} esg · ${s.bloqueado} bloq · ${s.erro} erro`
+  ).join('\n');
+
+  const resumo = totais + '\n\nPor fornecedor:\n' + porFornecedor + '\n\nPor database:\n' + porDatabase;
 
   log('================ RESUMO ================');
   resumo.split('\n').forEach(l => log(l));

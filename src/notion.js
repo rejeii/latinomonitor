@@ -75,3 +75,17 @@ export async function buscarProdutos() {
 export async function atualizarProduto(pageId, props) {
   await notionReq('PATCH', `pages/${pageId}`, { properties: props });
 }
+
+// Retorna { dbId: 'Nome da database' } para usar no resumo.
+export async function buscarNomesDatabases() {
+  const nomes = {};
+  for (const dbId of NOTION_DATABASE_IDS) {
+    try {
+      const json = await notionReq('GET', `databases/${dbId}`, null);
+      nomes[dbId] = (json.title || []).map(t => t.plain_text).join('').trim() || dbId.slice(0, 8);
+    } catch {
+      nomes[dbId] = dbId.slice(0, 8);
+    }
+  }
+  return nomes;
+}
