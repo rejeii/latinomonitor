@@ -1,5 +1,7 @@
 // ============================================================
-//  Discord — alertas via webhook (embeds portados do GAS)
+//  Discord — envio em LOTE (até 10 embeds por mensagem)
+//  Agrupar evita o rate limit e garante que todos os alertas
+//  saiam, não só os primeiros.
 // ============================================================
 
 import { DISCORD_WEBHOOK_PRECOS, DISCORD_WEBHOOK_ESGOTADOS } from './config.js';
@@ -13,49 +15,89 @@ export const NOMES = {
 const brl   = n => 'R$ ' + Number(n || 0).toFixed(2).replace('.', ',');
 const agora = () => new Date().toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo' });
 
-async function postWebhook(webhook, embed) {
-  const res = await fetch(webhook, {
-    method:  'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body:    JSON.stringify({ embeds: [embed] }),
-  });
-  if (!res.ok) {
-    const t = await res.text().catch(() => '');
-    throw new Error(`Discord ${res.status}: ${t}`);
+function chunk(arr, n) {
+  const out = [];
+  for (let i = 0; i < arr.length; i += n) out.push(arr.slice(i, i + n));
+  return out;
+}
+
+// Envia embeds em lotes de até 10, com folga entre lotes e 1 retry no 429.
+async function postEmbeds(webhook, embeds) {
+  for (const grupo of chunk(embeds, 10)) {
+    let res = await fetch(webhook, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ embeds: grupo }),
+    });
+    if (res.status === 429) {
+      const j = await res.json().catch(() => ({}));
+      const espera = Math.ceil((j.retry_after ?? 2) * 1000) + 300;
+      await new Promise(r => setTimeout(r, espera));
+      res = await fetch(webhook, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ embeds: grupo }),
+      });
+    }
+    if (!res.ok) {
+      const t = await res.text().catch(() => '');
+      throw new Error(`Discord ${res.status}: ${t}`);
+    }
+    await new Promise(r => setTimeout(r, 800)); // folga entre lotes
   }
 }
 
-export async function enviarAlertaPreco(produto, precoNovo, delta) {
+function embedPreco(produto, precoNovo, delta) {
   const subiu = delta > 0;
-  const embed = {
-    title:       (subiu ? '📈' : '📉') + '  Variação de preço detectada',
+  return {
+    title:       (subiu ? '📈  Preço subiu' : '📉  Preço caiu'),
     color:       subiu ? 15158332 : 3066993,
     url:         produto.url,
     description: `**${produto.nome}**`,
     fields: [
-      { name: 'Fornecedor',     value: NOMES[produto.fornecedor] || produto.fornecedor,    inline: true },
-      { name: 'Preço anterior', value: brl(produto.custoRef ?? produto.custoAtual),        inline: true },
-      { name: 'Preço atual',    value: brl(precoNovo),                                     inline: true },
-      { name: 'Diferença',      value: (delta > 0 ? '+' : '-') + brl(Math.abs(delta)),     inline: true },
+      { name: 'Fornecedor',     value: NOMES[produto.fornecedor] || produto.fornecedor, inline: true },
+      { name: 'Preço anterior', value: brl(produto.custoRef ?? produto.custoAtual),     inline: true },
+      { name: 'Preço atual',    value: brl(precoNovo),                                  inline: true },
+      { name: 'Diferença',      value: (subiu ? '+' : '-') + brl(Math.abs(delta)),      inline: true },
     ],
     footer: { text: 'LatinoGG Monitor · ' + agora() },
   };
-  await postWebhook(DISCORD_WEBHOOK_PRECOS, embed);
 }
 
-export async function enviarAlertaEsgotado(produto) {
-  const embed = {
+function embedEsgotado(produto) {
+  return {
     title:       '🚫  Produto esgotado no fornecedor',
     color:       9807270,
     url:         produto.url,
     description: `**${produto.nome}**`,
     fields: [
-      { name: 'Fornecedor',     value: NOMES[produto.fornecedor] || produto.fornecedor,  inline: true },
-      { name: 'Custo anterior', value: brl(produto.custoAtual ?? produto.custoRef),      inline: true },
+      { name: 'Fornecedor',     value: NOMES[produto.fornecedor] || produto.fornecedor, inline: true },
+      { name: 'Custo anterior', value: brl(produto.custoAtual ?? produto.custoRef),     inline: true },
     ],
     footer: { text: 'LatinoGG Monitor · ' + agora() },
   };
-  await postWebhook(DISCORD_WEBHOOK_ESGOTADOS, embed);
+}
+
+// items: [{ produto, preco, delta }]
+export async function enviarLotePrecos(items) {
+  if (!items.length) return;
+  await postEmbeds(DISCORD_WEBHOOK_PRECOS, items.map(i => embedPreco(i.produto, i.preco, i.delta)));
+}
+
+// items: [{ produto }]
+export async function enviarLoteEsgotados(items) {
+  if (!items.length) return;
+  await postEmbeds(DISCORD_WEBHOOK_ESGOTADOS, items.map(i => embedEsgotado(i.produto)));
+}
+
+export async function enviarResumo(texto) {
+  const embed = {
+    title:       '📊  Resumo do monitoramento',
+    color:       3447003,
+    description: texto,
+    footer:      { text: 'LatinoGG Monitor · ' + agora() },
+  };
+  await postEmbeds(DISCORD_WEBHOOK_PRECOS, [embed]).catch(() => {});
 }
 
 export async function enviarErro(mensagem) {
@@ -65,5 +107,5 @@ export async function enviarErro(mensagem) {
     description: mensagem,
     footer:      { text: agora() },
   };
-  await postWebhook(DISCORD_WEBHOOK_PRECOS, embed).catch(() => {});
+  await postEmbeds(DISCORD_WEBHOOK_PRECOS, [embed]).catch(() => {});
 }
