@@ -47,7 +47,7 @@ async function postEmbeds(webhook, embeds) {
   }
 }
 
-function embedPreco(produto, precoNovo, delta) {
+function embedPreco(produto, precoNovo, delta, dbNome) {
   const subiu = delta > 0;
   return {
     title:       (subiu ? '📈  Preço subiu' : '📉  Preço caiu'),
@@ -56,6 +56,8 @@ function embedPreco(produto, precoNovo, delta) {
     description: `**${produto.nome}**`,
     fields: [
       { name: 'Fornecedor',     value: NOMES[produto.fornecedor] || produto.fornecedor, inline: true },
+      { name: 'Database',       value: dbNome || '—',                                   inline: true },
+      { name: '​',         value: '​',                                        inline: true },
       { name: 'Preço anterior', value: brl(produto.custoRef ?? produto.custoAtual),     inline: true },
       { name: 'Preço atual',    value: brl(precoNovo),                                  inline: true },
       { name: 'Diferença',      value: (subiu ? '+' : '-') + brl(Math.abs(delta)),      inline: true },
@@ -64,7 +66,7 @@ function embedPreco(produto, precoNovo, delta) {
   };
 }
 
-function embedEsgotado(produto) {
+function embedEsgotado(produto, dbNome) {
   return {
     title:       '🚫  Produto esgotado no fornecedor',
     color:       9807270,
@@ -72,22 +74,44 @@ function embedEsgotado(produto) {
     description: `**${produto.nome}**`,
     fields: [
       { name: 'Fornecedor',     value: NOMES[produto.fornecedor] || produto.fornecedor, inline: true },
+      { name: 'Database',       value: dbNome || '—',                                   inline: true },
       { name: 'Custo anterior', value: brl(produto.custoAtual ?? produto.custoRef),     inline: true },
     ],
     footer: { text: 'LatinoGG Monitor · ' + agora() },
   };
 }
 
-// items: [{ produto, preco, delta }]
-export async function enviarLotePrecos(items) {
-  if (!items.length) return;
-  await postEmbeds(DISCORD_WEBHOOK_PRECOS, items.map(i => embedPreco(i.produto, i.preco, i.delta)));
+function embedVoltou(produto, precoNovo, dbNome) {
+  return {
+    title:       '🔄  Produto voltou ao estoque',
+    color:       5763719,
+    url:         produto.url,
+    description: `**${produto.nome}**`,
+    fields: [
+      { name: 'Fornecedor',  value: NOMES[produto.fornecedor] || produto.fornecedor, inline: true },
+      { name: 'Database',    value: dbNome || '—',                                   inline: true },
+      { name: 'Preço atual', value: brl(precoNovo),                                  inline: true },
+    ],
+    footer: { text: 'LatinoGG Monitor · ' + agora() },
+  };
 }
 
-// items: [{ produto }]
+// items: [{ produto, preco, delta, dbNome }]
+export async function enviarLotePrecos(items) {
+  if (!items.length) return;
+  await postEmbeds(DISCORD_WEBHOOK_PRECOS, items.map(i => embedPreco(i.produto, i.preco, i.delta, i.dbNome)));
+}
+
+// items: [{ produto, dbNome }]
 export async function enviarLoteEsgotados(items) {
   if (!items.length) return;
-  await postEmbeds(DISCORD_WEBHOOK_ESGOTADOS, items.map(i => embedEsgotado(i.produto)));
+  await postEmbeds(DISCORD_WEBHOOK_ESGOTADOS, items.map(i => embedEsgotado(i.produto, i.dbNome)));
+}
+
+// items: [{ produto, preco, dbNome }]  → vai pro canal de estoque
+export async function enviarLoteVoltou(items) {
+  if (!items.length) return;
+  await postEmbeds(DISCORD_WEBHOOK_ESGOTADOS, items.map(i => embedVoltou(i.produto, i.preco, i.dbNome)));
 }
 
 export async function enviarInicio(texto) {
@@ -108,7 +132,8 @@ export async function enviarResumo(texto) {
     description: texto,
     footer:      { text: 'LatinoGG Monitor · ' + agora() },
   };
-  await postEmbeds(DISCORD_WEBHOOK_PRECOS, [embed]).catch(() => {});
+  // mesmo canal do aviso de início (cai no de preços se o de início não existir)
+  await postEmbeds(DISCORD_WEBHOOK_INICIO || DISCORD_WEBHOOK_PRECOS, [embed]).catch(() => {});
 }
 
 export async function enviarErro(mensagem) {

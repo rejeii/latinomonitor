@@ -10,7 +10,7 @@ import StealthPlugin from 'puppeteer-extra-plugin-stealth';
 import { buscarProdutos, atualizarProduto, buscarNomesDatabases } from './notion.js';
 import { scrapeProduto } from './scrapers.js';
 import { calcPriceChange } from './priceChange.js';
-import { enviarLotePrecos, enviarLoteEsgotados, enviarResumo, enviarErro, enviarInicio, NOMES } from './discord.js';
+import { enviarLotePrecos, enviarLoteEsgotados, enviarLoteVoltou, enviarResumo, enviarErro, enviarInicio, NOMES } from './discord.js';
 import { DELAY_MS, NAV_TIMEOUT_MS, PRICE_THRESHOLD } from './config.js';
 
 chromium.use(StealthPlugin());
@@ -47,17 +47,18 @@ async function main() {
   const page = await context.newPage();
 
   // Acumuladores — Discord só é chamado DEPOIS do loop (em lote)
-  const precoAlerts    = [];   // { produto, preco, delta }  (subiu OU desceu)
-  const esgotadoAlerts = [];   // { produto }  (apenas novas transições)
+  const precoAlerts    = [];   // { produto, preco, delta, dbNome }  (subiu OU desceu)
+  const esgotadoAlerts = [];   // { produto, dbNome }  (apenas novas transições)
+  const restockAlerts  = [];   // { produto, preco, dbNome }  (voltou ao estoque)
 
   const stats   = {};
   const statsDb = {};
-  const novo    = () => ({ ok:0, preco:0, esgotado:0, esgNovo:0, erro:0, bloqueado:0 });
+  const novo    = () => ({ ok:0, preco:0, esgotado:0, esgNovo:0, voltou:0, erro:0, bloqueado:0 });
   const bump    = (forn, key) => { (stats[forn]   ??= novo())[key]++; };
   const bumpDb  = (dbId, key) => { (statsDb[dbId] ??= novo())[key]++; };
   const conta   = (p, key)    => { bump(p.fornecedor, key); bumpDb(p.dbId, key); };
 
-  let est = 0, precoAlt = 0, esgotadoTot = 0, esgotadoNovo = 0, erros = 0, bloqueados = 0;
+  let est = 0, precoAlt = 0, esgotadoTot = 0, esgotadoNovo = 0, voltouCount = 0, erros = 0, bloqueados = 0;
 
   for (const produto of produtos) {
     try {
@@ -79,7 +80,7 @@ async function main() {
         });
         if (produto.status !== 'Esgotado') {
           log('[ESGOTADO]', tag(produto), produto.nome);
-          esgotadoAlerts.push({ produto });
+          esgotadoAlerts.push({ produto, dbNome: labelDb(produto.dbId) });
           esgotadoNovo++; conta(produto, 'esgNovo');
         } else {
           log('[esgotado]', tag(produto), produto.nome);
@@ -95,6 +96,7 @@ async function main() {
       }
 
       // ── Em estoque: escreve SEMPRE, depois decide alerta ──
+      const voltou = produto.status === 'Esgotado';   // estava esgotado no Notion → voltou
       const change = calcPriceChange(price, produto.custoRef);
       const props = {
         'Custo Atual': { number: price },
@@ -102,13 +104,23 @@ async function main() {
         'Status':      { select: { name: status } },
       };
       if (change) Object.assign(props, change.props);
+      if (voltou) {
+        // ao voltar do esgotado, reseta o baseline pro preço atual
+        props['Custo Referência'] = { number: price };
+        props['Alteração']        = { select: { name: 'Estável' } };
+        props['Alteração de']     = { number: 0 };
+      }
       await atualizarProduto(produto.pageId, props);
 
-      if (change?.triggered) {
+      if (voltou) {
+        log('[VOLTOU]', tag(produto), produto.nome, `— R$${price.toFixed(2)}`);
+        restockAlerts.push({ produto, preco: price, dbNome: labelDb(produto.dbId) });
+        voltouCount++; conta(produto, 'voltou');
+      } else if (change?.triggered) {
         const seta = change.delta > 0 ? '▲' : '▼';
         log('[ALERTA ' + seta + ']', tag(produto), produto.nome,
             `— R$${price.toFixed(2)} (ref R$${(produto.custoRef ?? 0).toFixed(2)}, Δ R$${change.delta.toFixed(2)})`);
-        precoAlerts.push({ produto, preco: price, delta: change.delta });
+        precoAlerts.push({ produto, preco: price, delta: change.delta, dbNome: labelDb(produto.dbId) });
         precoAlt++; conta(produto, 'preco');
       } else {
         log('[ok]', tag(produto), produto.nome, `— R$${price.toFixed(2)}`);
@@ -128,6 +140,7 @@ async function main() {
   try {
     await enviarLotePrecos(precoAlerts);
     await enviarLoteEsgotados(esgotadoAlerts);
+    await enviarLoteVoltou(restockAlerts);
   } catch (e) {
     log('Falha ao enviar alertas em lote:', e.message);
   }
@@ -144,15 +157,16 @@ async function main() {
     `✅ Estáveis: ${est}\n` +
     `📈 Preço alterado: ${precoAlt}\n` +
     `🚫 Esgotados: ${esgotadoTot} (${esgotadoNovo} novos${novosPorDb ? ' — ' + novosPorDb : ''})\n` +
+    `🔄 Voltaram ao estoque: ${voltouCount}\n` +
     `⛔ Bloqueados: ${bloqueados}\n` +
     `❌ Erros: ${erros}`;
 
   const porFornecedor = Object.entries(stats).map(([f, s]) =>
-    `• ${NOMES[f] || f}: ${s.ok} ok · ${s.preco} alt · ${s.esgotado} esg · ${s.bloqueado} bloq · ${s.erro} erro`
+    `• ${NOMES[f] || f}: ${s.ok} ok · ${s.preco} alt · ${s.esgotado} esg · ${s.voltou} volt · ${s.bloqueado} bloq · ${s.erro} erro`
   ).join('\n');
 
   const porDatabase = Object.entries(statsDb).map(([id, s]) =>
-    `• ${labelDb(id)}: ${s.ok} ok · ${s.preco} alt · ${s.esgotado} esg · ${s.bloqueado} bloq · ${s.erro} erro`
+    `• ${labelDb(id)}: ${s.ok} ok · ${s.preco} alt · ${s.esgotado} esg · ${s.voltou} volt · ${s.bloqueado} bloq · ${s.erro} erro`
   ).join('\n');
 
   const resumo = totais + '\n\nPor fornecedor:\n' + porFornecedor + '\n\nPor database:\n' + porDatabase;
