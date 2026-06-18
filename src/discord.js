@@ -4,7 +4,7 @@
 //  saiam, não só os primeiros.
 // ============================================================
 
-import { DISCORD_WEBHOOK_PRECOS, DISCORD_WEBHOOK_ESGOTADOS } from './config.js';
+import { DISCORD_WEBHOOK_PRECOS, DISCORD_WEBHOOK_ESGOTADOS, DISCORD_WEBHOOK_INICIO } from './config.js';
 
 export const NOMES = {
   visaovip:           'VisãoVip',
@@ -88,6 +88,17 @@ export async function enviarLotePrecos(items) {
 export async function enviarLoteEsgotados(items) {
   if (!items.length) return;
   await postEmbeds(DISCORD_WEBHOOK_ESGOTADOS, items.map(i => embedEsgotado(i.produto)));
+}
+
+export async function enviarInicio(texto) {
+  if (!DISCORD_WEBHOOK_INICIO) return;
+  const embed = {
+    title:       '🟢  Monitoramento iniciado',
+    color:       5763719,
+    description: texto,
+    footer:      { text: 'LatinoGG Monitor · ' + agora() },
+  };
+  await postEmbeds(DISCORD_WEBHOOK_INICIO, [embed]).catch(() => {});
 }
 
 export async function enviarResumo(texto) {

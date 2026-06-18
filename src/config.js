@@ -20,6 +20,8 @@ export const DISCORD_WEBHOOK_PRECOS = req('DISCORD_WEBHOOK_PRECOS');
 // Se não houver canal separado de esgotados, cai no de preços
 export const DISCORD_WEBHOOK_ESGOTADOS =
   process.env.DISCORD_WEBHOOK_ESGOTADOS || DISCORD_WEBHOOK_PRECOS;
+// Webhook opcional para avisar que o monitoramento começou
+export const DISCORD_WEBHOOK_INICIO = process.env.DISCORD_WEBHOOK_INICIO || '';
 
 // Variação (R$) mínima para disparar alerta. Default 10.
 export const PRICE_THRESHOLD = Number(process.env.PRICE_THRESHOLD || 10);

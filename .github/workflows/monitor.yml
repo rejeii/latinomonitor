@@ -2,8 +2,8 @@ name: LatinoGG Monitor
 
 on:
   schedule:
-    # 08:00 America/Sao_Paulo (UTC-3) = 11:00 UTC
-    - cron: '0 11 * * *'
+    # A cada 6h — 02:00, 08:00, 14:00, 20:00 (horário de Brasília) = 05/11/17/23 UTC
+    - cron: '0 5,11,17,23 * * *'
   workflow_dispatch: {}   # botão "Run workflow" na aba Actions
 
 jobs:
@@ -29,5 +29,6 @@ jobs:
           NOTION_DATABASE_IDS:       ${{ secrets.NOTION_DATABASE_IDS }}
           DISCORD_WEBHOOK_PRECOS:    ${{ secrets.DISCORD_WEBHOOK_PRECOS }}
           DISCORD_WEBHOOK_ESGOTADOS: ${{ secrets.DISCORD_WEBHOOK_ESGOTADOS }}
+          DISCORD_WEBHOOK_INICIO:    ${{ secrets.DISCORD_WEBHOOK_INICIO }}
           PRICE_THRESHOLD:           ${{ vars.PRICE_THRESHOLD }}
         run: npm start

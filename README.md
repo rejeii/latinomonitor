@@ -53,12 +53,16 @@ de um produto só define o baseline (não alerta).
    - `NOTION_DATABASE_IDS` — IDs separados por vírgula (ex: `abc123...,def456...`)
    - `DISCORD_WEBHOOK_PRECOS`
    - `DISCORD_WEBHOOK_ESGOTADOS` (opcional — se não criar, usa o de preços)
+   - `DISCORD_WEBHOOK_INICIO` (opcional — recebe um aviso quando cada run começa)
 3. Na aba **Variables** (ao lado de Secrets), crie a variável `PRICE_THRESHOLD` = `10` (opcional).
-4. Pronto: roda todo dia às **08:00 (horário de Brasília)**. Para rodar agora, vá em
-   **Actions → LatinoGG Monitor → Run workflow**.
+4. Pronto: roda **a cada 6h** — 02:00, 08:00, 14:00 e 20:00 (horário de Brasília). Para rodar agora,
+   vá em **Actions → LatinoGG Monitor → Run workflow**.
 
 Para mudar o horário, edite o `cron` em [`.github/workflows/monitor.yml`](.github/workflows/monitor.yml)
-(está em UTC; 08:00 BRT = `0 11 * * *`).
+(está em UTC; a cada 6h ancorado em 08:00 BRT = `0 5,11,17,23 * * *`).
+
+> ⚠️ O GitHub **desativa o agendamento após 60 dias sem commits** no repo (os runs não contam).
+> Ele avisa por email e reativar é 1 clique — ou peça um "keepalive" automático.
 
 ---
 

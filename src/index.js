@@ -10,7 +10,7 @@ import StealthPlugin from 'puppeteer-extra-plugin-stealth';
 import { buscarProdutos, atualizarProduto, buscarNomesDatabases } from './notion.js';
 import { scrapeProduto } from './scrapers.js';
 import { calcPriceChange } from './priceChange.js';
-import { enviarLotePrecos, enviarLoteEsgotados, enviarResumo, enviarErro, NOMES } from './discord.js';
+import { enviarLotePrecos, enviarLoteEsgotados, enviarResumo, enviarErro, enviarInicio, NOMES } from './discord.js';
 import { DELAY_MS, NAV_TIMEOUT_MS, PRICE_THRESHOLD } from './config.js';
 
 chromium.use(StealthPlugin());
@@ -28,6 +28,12 @@ async function main() {
   log(`Produtos para monitorar: ${produtos.length}`);
   if (!produtos.length) return;
 
+  const nomesDb = await buscarNomesDatabases();
+  const labelDb = id => nomesDb[id] || id.slice(0, 8);
+
+  // Avisa no Discord que o monitoramento começou (antes de raspar)
+  await enviarInicio(`Verificando **${produtos.length}** produtos em ${Object.keys(nomesDb).length} database(s): ${Object.values(nomesDb).join(', ')}.`);
+
   const browser = await chromium.launch({
     headless: true,
     args: ['--no-sandbox', '--disable-blink-features=AutomationControlled'],
@@ -43,9 +49,6 @@ async function main() {
   // Acumuladores — Discord só é chamado DEPOIS do loop (em lote)
   const precoAlerts    = [];   // { produto, preco, delta }  (subiu OU desceu)
   const esgotadoAlerts = [];   // { produto }  (apenas novas transições)
-
-  const nomesDb = await buscarNomesDatabases();
-  const labelDb = id => nomesDb[id] || id.slice(0, 8);
 
   const stats   = {};
   const statsDb = {};
