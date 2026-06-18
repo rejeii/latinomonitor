@@ -1,0 +1,33 @@
+name: LatinoGG Monitor
+
+on:
+  schedule:
+    # 08:00 America/Sao_Paulo (UTC-3) = 11:00 UTC
+    - cron: '0 11 * * *'
+  workflow_dispatch: {}   # botão "Run workflow" na aba Actions
+
+jobs:
+  monitor:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Instalar dependências
+        run: npm install
+
+      - name: Instalar Chromium (Playwright)
+        run: npx playwright install --with-deps chromium
+
+      - name: Rodar monitor
+        env:
+          NOTION_TOKEN:              ${{ secrets.NOTION_TOKEN }}
+          NOTION_DATABASE_IDS:       ${{ secrets.NOTION_DATABASE_IDS }}
+          DISCORD_WEBHOOK_PRECOS:    ${{ secrets.DISCORD_WEBHOOK_PRECOS }}
+          DISCORD_WEBHOOK_ESGOTADOS: ${{ secrets.DISCORD_WEBHOOK_ESGOTADOS }}
+          PRICE_THRESHOLD:           ${{ vars.PRICE_THRESHOLD }}
+        run: npm start

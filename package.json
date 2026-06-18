@@ -1,0 +1,17 @@
+{
+  "name": "latino-monitor",
+  "version": "1.0.0",
+  "description": "Monitor de preços LatinoGG via Playwright (navegador headless) + alertas no Discord. Roda no GitHub Actions.",
+  "type": "module",
+  "private": true,
+  "scripts": {
+    "start": "node src/index.js",
+    "test:produto": "node src/test-produto.js"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "playwright": "^1.48.0"
+  }
+}
