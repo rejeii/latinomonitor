@@ -3,8 +3,11 @@
 //  Uso: node src/test-produto.js "https://www.visaovip.com/prod/..."
 // ============================================================
 
-import { chromium } from 'playwright';
+import { chromium } from 'playwright-extra';
+import StealthPlugin from 'puppeteer-extra-plugin-stealth';
 import { scrapeProduto, detectarFornecedor } from './scrapers.js';
+
+chromium.use(StealthPlugin());
 
 const url = process.argv[2];
 if (!url) {

@@ -4,15 +4,19 @@
 //  com o Custo Referência → grava de volta → alerta no Discord.
 // ============================================================
 
-import { chromium } from 'playwright';
+import { chromium } from 'playwright-extra';
+import StealthPlugin from 'puppeteer-extra-plugin-stealth';
 import { buscarProdutos, atualizarProduto } from './notion.js';
 import { scrapeProduto } from './scrapers.js';
 import { calcPriceChange } from './priceChange.js';
-import { enviarAlertaPreco, enviarAlertaEsgotado, enviarErro } from './discord.js';
+import { enviarAlertaPreco, enviarAlertaEsgotado, enviarErro, NOMES } from './discord.js';
 import { DELAY_MS, NAV_TIMEOUT_MS } from './config.js';
+
+chromium.use(StealthPlugin());
 
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 const log   = (...a) => console.log(new Date().toISOString(), ...a);
+const tag   = p => `[${NOMES[p.fornecedor] || p.fornecedor}]`;
 
 const UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36';
 
@@ -42,7 +46,7 @@ async function main() {
       const { price, status, blocked } = await scrapeProduto(page, produto);
 
       if (blocked) {
-        log(`BLOQUEADO (Cloudflare): ${produto.nome}`);
+        log('[BLOQUEADO]', tag(produto), produto.nome);
         bloqueados++;
         await sleep(DELAY_MS);
         continue;
@@ -51,9 +55,11 @@ async function main() {
       // ── Esgotado: alerta só na TRANSIÇÃO (estava em estoque → esgotou) ──
       if (status === 'Esgotado') {
         if (produto.status !== 'Esgotado') {
-          log(`[ESGOTADO] ${produto.nome}`);
+          log('[ESGOTADO]', tag(produto), produto.nome);
           await enviarAlertaEsgotado(produto);
           alertasEstoque++;
+        } else {
+          log('[esgotado]', tag(produto), produto.nome);
         }
         await atualizarProduto(produto.pageId, {
           'Status': { select: { name: 'Esgotado' } },
@@ -64,7 +70,7 @@ async function main() {
       }
 
       if (!price || price <= 0) {
-        log(`PREÇO INVÁLIDO: ${produto.nome}`);
+        log('[SEM PREÇO]', tag(produto), produto.nome);
         erros++;
         await sleep(DELAY_MS);
         continue;
@@ -82,11 +88,12 @@ async function main() {
       await atualizarProduto(produto.pageId, props);
 
       if (change?.triggered) {
-        log(`[${produto.fornecedor}] ${produto.nome} | ref R$${(produto.custoRef ?? 0).toFixed(2)} → R$${price.toFixed(2)} | Δ R$${change.delta.toFixed(2)}`);
+        const seta = change.delta > 0 ? '▲' : '▼';
+        log('[ALERTA ' + seta + ']', tag(produto), produto.nome, `— R$${price.toFixed(2)} (ref R$${(produto.custoRef ?? 0).toFixed(2)}, Δ R$${change.delta.toFixed(2)})`);
         await enviarAlertaPreco(produto, price, change.delta);
         alertasPreco++;
       } else {
-        log(`[ok] ${produto.nome} — R$${price.toFixed(2)}`);
+        log('[ok]', tag(produto), produto.nome, `— R$${price.toFixed(2)}`);
       }
 
     } catch (e) {

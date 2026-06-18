@@ -4,7 +4,7 @@
 
 import { DISCORD_WEBHOOK_PRECOS, DISCORD_WEBHOOK_ESGOTADOS } from './config.js';
 
-const NOMES = {
+export const NOMES = {
   visaovip:           'VisãoVip',
   atacadoconnect:     'AtacadoConnect',
   atacadocollections: 'AtacadoCollections',

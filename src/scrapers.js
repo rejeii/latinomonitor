@@ -74,20 +74,21 @@ export async function scrapeProduto(page, produto) {
   const readySel = READY_SEL[fornecedor];
   if (readySel) {
     try {
-      await page.waitForSelector(readySel, { timeout: 15000 });
+      await page.waitForSelector(readySel, { timeout: 20000 });
     } catch {
-      // segue mesmo assim — produto pode estar esgotado e sem o título
+      // segue mesmo assim — pode ser esgotado sem título OU desafio Cloudflare
     }
   }
 
-  // O preço renderiza no cliente DEPOIS do título (o site converte U$→R$).
-  // Faz polling até o preço aparecer (ou esgotado/bloqueado/timeout).
-  const deadline = Date.now() + 9000;
+  // Polling até o preço aparecer. NÃO desiste no "bloqueado": o desafio da
+  // Cloudflare ("Just a moment") se auto-resolve em alguns segundos num
+  // navegador real — damos tempo (deadline maior) para ele limpar.
+  const deadline = Date.now() + 22000;
   let result;
   do {
     result = await page.evaluate(scrapeInPage, fornecedor);
-    if (result.price > 0 || result.status === 'Esgotado' || result.blocked) break;
-    await page.waitForTimeout(500);
+    if (result.price > 0 || result.status === 'Esgotado') break;
+    await page.waitForTimeout(700);
   } while (Date.now() < deadline);
 
   return result;
