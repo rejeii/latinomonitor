@@ -23,8 +23,12 @@ export const DISCORD_WEBHOOK_ESGOTADOS =
 // Webhook opcional para avisar que o monitoramento começou
 export const DISCORD_WEBHOOK_INICIO = process.env.DISCORD_WEBHOOK_INICIO || '';
 
-// Variação (R$) mínima para disparar alerta. Default 10.
-export const PRICE_THRESHOLD = Number(process.env.PRICE_THRESHOLD || 10);
+// Disparo do alerta de preço: variação percentual mínima + piso absoluto (R$).
+// Alerta quando |Δ%| >= PRICE_THRESHOLD_PCT  E  |Δ R$| >= PRICE_FLOOR.
+// Porcentagem escala melhor que valor fixo (R$10 num produto de R$50 = 20%;
+// num de R$5000 = 0,2% = só ruído do dólar).
+export const PRICE_THRESHOLD_PCT = Number(process.env.PRICE_THRESHOLD_PCT || 2);
+export const PRICE_FLOOR         = Number(process.env.PRICE_FLOOR || 1);
 
 // Timeout de navegação por página (ms)
 export const NAV_TIMEOUT_MS = Number(process.env.NAV_TIMEOUT_MS || 30000);

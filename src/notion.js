@@ -57,12 +57,13 @@ export async function buscarProdutos() {
         const nome       = props['Nome']?.title?.[0]?.plain_text || '(sem nome)';
         const custoAtual = props['Custo Atual']?.number ?? null;
         const custoRef   = props['Custo Referência']?.number ?? null;
+        const menorPreco = props['Menor Preço']?.number ?? null;
         const status     = props['Status']?.select?.name ?? null;
         const fornecedor = detectarFornecedor(url);
 
         if (!url || !fornecedor) continue;
 
-        produtos.push({ pageId: page.id, nome, url, custoAtual, custoRef, status, fornecedor, dbId });
+        produtos.push({ pageId: page.id, nome, url, custoAtual, custoRef, menorPreco, status, fornecedor, dbId });
       }
 
       cursor = json.has_more ? json.next_cursor : null;
@@ -76,13 +77,20 @@ export async function atualizarProduto(pageId, props) {
   await notionReq('PATCH', `pages/${pageId}`, { properties: props });
 }
 
-// Retorna { dbId: 'Nome da database' } para usar no resumo.
-export async function buscarNomesDatabases() {
+// Pega o nome de cada database E garante que o campo "Menor Preço" exista
+// (cria automático se faltar). Retorna { dbId: 'Nome da database' }.
+export async function prepararDatabases() {
   const nomes = {};
   for (const dbId of NOTION_DATABASE_IDS) {
     try {
       const json = await notionReq('GET', `databases/${dbId}`, null);
       nomes[dbId] = (json.title || []).map(t => t.plain_text).join('').trim() || dbId.slice(0, 8);
+
+      if (!Object.keys(json.properties || {}).includes('Menor Preço')) {
+        await notionReq('PATCH', `databases/${dbId}`, {
+          properties: { 'Menor Preço': { number: { format: 'real' } } },
+        });
+      }
     } catch {
       nomes[dbId] = dbId.slice(0, 8);
     }

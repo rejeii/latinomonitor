@@ -7,11 +7,11 @@
 
 import { chromium } from 'playwright-extra';
 import StealthPlugin from 'puppeteer-extra-plugin-stealth';
-import { buscarProdutos, atualizarProduto, buscarNomesDatabases } from './notion.js';
+import { buscarProdutos, atualizarProduto, prepararDatabases } from './notion.js';
 import { scrapeProduto } from './scrapers.js';
 import { calcPriceChange } from './priceChange.js';
 import { enviarLotePrecos, enviarLoteEsgotados, enviarLoteVoltou, enviarResumo, enviarErro, enviarInicio, NOMES } from './discord.js';
-import { DELAY_MS, NAV_TIMEOUT_MS, PRICE_THRESHOLD } from './config.js';
+import { DELAY_MS, NAV_TIMEOUT_MS, PRICE_THRESHOLD_PCT, PRICE_FLOOR } from './config.js';
 
 chromium.use(StealthPlugin());
 
@@ -28,8 +28,13 @@ async function main() {
   log(`Produtos para monitorar: ${produtos.length}`);
   if (!produtos.length) return;
 
-  const nomesDb = await buscarNomesDatabases();
+  const nomesDb = await prepararDatabases();
   const labelDb = id => nomesDb[id] || id.slice(0, 8);
+
+  // Detecta produtos duplicados (mesma URL em 2+ linhas do Notion)
+  const urlCount = {};
+  for (const p of produtos) urlCount[p.url] = (urlCount[p.url] || 0) + 1;
+  const duplicados = [...new Set(produtos.filter(p => urlCount[p.url] > 1).map(p => p.nome))];
 
   // Avisa no Discord que o monitoramento começou (antes de raspar)
   await enviarInicio(`Verificando **${produtos.length}** produtos em ${Object.keys(nomesDb).length} database(s): ${Object.values(nomesDb).join(', ')}.`);
@@ -98,8 +103,14 @@ async function main() {
       // ── Em estoque: escreve SEMPRE, depois decide alerta ──
       const voltou = produto.status === 'Esgotado';   // estava esgotado no Notion → voltou
       const change = calcPriceChange(price, produto.custoRef);
+
+      // Menor preço histórico
+      const menor     = (produto.menorPreco == null || price < produto.menorPreco) ? price : produto.menorPreco;
+      const novoMenor = produto.menorPreco == null || price < produto.menorPreco;
+
       const props = {
         'Custo Atual': { number: price },
+        'Menor Preço': { number: menor },
         'Data':        { date: { start: new Date().toISOString() } },
         'Status':      { select: { name: status } },
       };
@@ -119,8 +130,8 @@ async function main() {
       } else if (change?.triggered) {
         const seta = change.delta > 0 ? '▲' : '▼';
         log('[ALERTA ' + seta + ']', tag(produto), produto.nome,
-            `— R$${price.toFixed(2)} (ref R$${(produto.custoRef ?? 0).toFixed(2)}, Δ R$${change.delta.toFixed(2)})`);
-        precoAlerts.push({ produto, preco: price, delta: change.delta, dbNome: labelDb(produto.dbId) });
+            `— R$${price.toFixed(2)} (ref R$${(produto.custoRef ?? 0).toFixed(2)}, Δ R$${change.delta.toFixed(2)}, ${change.pct.toFixed(1)}%)`);
+        precoAlerts.push({ produto, preco: price, delta: change.delta, pct: change.pct, dbNome: labelDb(produto.dbId), menor, novoMenor });
         precoAlt++; conta(produto, 'preco');
       } else {
         log('[ok]', tag(produto), produto.nome, `— R$${price.toFixed(2)}`);
@@ -152,14 +163,15 @@ async function main() {
     .join(', ');
 
   const totais =
-    `Limite de alerta: R$${PRICE_THRESHOLD}\n` +
+    `Limite de alerta: ≥ ${PRICE_THRESHOLD_PCT}% (mín R$${PRICE_FLOOR})\n` +
     `Total verificado: ${produtos.length}\n` +
     `✅ Estáveis: ${est}\n` +
     `📈 Preço alterado: ${precoAlt}\n` +
     `🚫 Esgotados: ${esgotadoTot} (${esgotadoNovo} novos${novosPorDb ? ' — ' + novosPorDb : ''})\n` +
     `🔄 Voltaram ao estoque: ${voltouCount}\n` +
     `⛔ Bloqueados: ${bloqueados}\n` +
-    `❌ Erros: ${erros}`;
+    `❌ Erros: ${erros}` +
+    (duplicados.length ? `\n⚠️ Duplicados (mesma URL): ${duplicados.length}` : '');
 
   const porFornecedor = Object.entries(stats).map(([f, s]) =>
     `• ${NOMES[f] || f}: ${s.ok} ok · ${s.preco} alt · ${s.esgotado} esg · ${s.voltou} volt · ${s.bloqueado} bloq · ${s.erro} erro`
@@ -169,7 +181,11 @@ async function main() {
     `• ${labelDb(id)}: ${s.ok} ok · ${s.preco} alt · ${s.esgotado} esg · ${s.voltou} volt · ${s.bloqueado} bloq · ${s.erro} erro`
   ).join('\n');
 
-  const resumo = totais + '\n\nPor fornecedor:\n' + porFornecedor + '\n\nPor database:\n' + porDatabase;
+  const blocoDup = duplicados.length
+    ? '\n\nDuplicados (limpar no Notion):\n' + duplicados.map(n => `• ${n}`).join('\n')
+    : '';
+
+  const resumo = totais + '\n\nPor fornecedor:\n' + porFornecedor + '\n\nPor database:\n' + porDatabase + blocoDup;
 
   log('================ RESUMO ================');
   resumo.split('\n').forEach(l => log(l));

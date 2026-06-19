@@ -47,22 +47,27 @@ async function postEmbeds(webhook, embeds) {
   }
 }
 
-function embedPreco(produto, precoNovo, delta, dbNome) {
+function embedPreco(item) {
+  const { produto, preco, delta, pct, dbNome, menor, novoMenor } = item;
   const subiu = delta > 0;
+  const fields = [
+    { name: 'Fornecedor',     value: NOMES[produto.fornecedor] || produto.fornecedor,            inline: true },
+    { name: 'Database',       value: dbNome || '—',                                              inline: true },
+    { name: '​',         value: '​',                                                   inline: true },
+    { name: 'Preço anterior', value: brl(produto.custoRef ?? produto.custoAtual),                inline: true },
+    { name: 'Preço atual',    value: brl(preco),                                                 inline: true },
+    { name: 'Diferença',      value: (subiu ? '+' : '-') + brl(Math.abs(delta)) + ` (${pct.toFixed(1)}%)`, inline: true },
+  ];
+  if (menor != null) {
+    fields.push({ name: 'Menor histórico', value: brl(menor) + (novoMenor ? '  🔻 novo!' : ''),  inline: true });
+  }
   return {
     title:       (subiu ? '📈  Preço subiu' : '📉  Preço caiu'),
     // subiu = verde, desceu = vermelho (convenção pedida)
     color:       subiu ? 3066993 : 15158332,
     url:         produto.url,
     description: `**${produto.nome}**`,
-    fields: [
-      { name: 'Fornecedor',     value: NOMES[produto.fornecedor] || produto.fornecedor, inline: true },
-      { name: 'Database',       value: dbNome || '—',                                   inline: true },
-      { name: '​',         value: '​',                                        inline: true },
-      { name: 'Preço anterior', value: brl(produto.custoRef ?? produto.custoAtual),     inline: true },
-      { name: 'Preço atual',    value: brl(precoNovo),                                  inline: true },
-      { name: 'Diferença',      value: (subiu ? '+' : '-') + brl(Math.abs(delta)),      inline: true },
-    ],
+    fields,
     footer: { text: 'LatinoGG Monitor · ' + agora() },
   };
 }
@@ -97,10 +102,10 @@ function embedVoltou(produto, precoNovo, dbNome) {
   };
 }
 
-// items: [{ produto, preco, delta, dbNome }]
+// items: [{ produto, preco, delta, pct, dbNome, menor, novoMenor }]
 export async function enviarLotePrecos(items) {
   if (!items.length) return;
-  await postEmbeds(DISCORD_WEBHOOK_PRECOS, items.map(i => embedPreco(i.produto, i.preco, i.delta, i.dbNome)));
+  await postEmbeds(DISCORD_WEBHOOK_PRECOS, items.map(embedPreco));
 }
 
 // items: [{ produto, dbNome }]

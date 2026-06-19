@@ -29,5 +29,17 @@ jobs:
           DISCORD_WEBHOOK_PRECOS:    ${{ secrets.DISCORD_WEBHOOK_PRECOS }}
           DISCORD_WEBHOOK_ESGOTADOS: ${{ secrets.DISCORD_WEBHOOK_ESGOTADOS }}
           DISCORD_WEBHOOK_INICIO:    ${{ secrets.DISCORD_WEBHOOK_INICIO }}
-          PRICE_THRESHOLD:           ${{ vars.PRICE_THRESHOLD }}
+          PRICE_THRESHOLD_PCT:       ${{ vars.PRICE_THRESHOLD_PCT }}
+          PRICE_FLOOR:               ${{ vars.PRICE_FLOOR }}
         run: npm start
+
+      # Avisa no Discord se QUALQUER passo acima falhar (npm/playwright/node/infra)
+      - name: Avisar falha no Discord
+        if: failure()
+        env:
+          WEBHOOK: ${{ secrets.DISCORD_WEBHOOK_INICIO }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          if [ -z "$WEBHOOK" ]; then exit 0; fi
+          curl -s -X POST "$WEBHOOK" -H "Content-Type: application/json" \
+            -d "{\"embeds\":[{\"title\":\"❌ LatinoGG Monitor — run FALHOU\",\"description\":\"Um passo do workflow falhou. [Ver logs do run]($RUN_URL)\",\"color\":15158332}]}"
