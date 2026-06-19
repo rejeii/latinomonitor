@@ -1,12 +1,14 @@
 // ============================================================
 //  Lógica de variação de preço (portada do userscript)
 //  Compara o preço novo com o "Custo Referência" salvo no Notion.
-//  Dispara quando |Δ%| >= PRICE_THRESHOLD_PCT  E  |Δ R$| >= PRICE_FLOOR.
+//  Limite por faixa de valor do produto:
+//    custoRef <= PRICE_HIGH_LEVEL  → dispara se |Δ| >= PRICE_THRESHOLD
+//    custoRef  > PRICE_HIGH_LEVEL  → dispara se |Δ| >= PRICE_THRESHOLD_HIGH
 //  Quando dispara, o "Custo Referência" vira o novo preço → não
 //  re-alerta a mesma variação na próxima execução.
 // ============================================================
 
-import { PRICE_THRESHOLD_PCT, PRICE_FLOOR } from './config.js';
+import { PRICE_THRESHOLD, PRICE_THRESHOLD_HIGH, PRICE_HIGH_LEVEL } from './config.js';
 
 export function calcPriceChange(newPrice, custoRef) {
   if (!newPrice || newPrice <= 0) return null;
@@ -16,7 +18,7 @@ export function calcPriceChange(newPrice, custoRef) {
   // Primeira vez que vemos o produto: define baseline, não alerta
   if (isNew) {
     return {
-      triggered: false, delta: 0, absDelta: 0, pct: 0,
+      triggered: false, delta: 0, absDelta: 0,
       props: {
         'Custo Referência': { number: newPrice },
         'Alteração':        { select: { name: 'Estável' } },
@@ -27,8 +29,8 @@ export function calcPriceChange(newPrice, custoRef) {
 
   const delta     = newPrice - custoRef;
   const absDelta  = Math.abs(delta);
-  const pct       = custoRef > 0 ? (absDelta / custoRef) * 100 : 0;
-  const triggered = pct >= PRICE_THRESHOLD_PCT && absDelta >= PRICE_FLOOR;
+  const limite    = custoRef > PRICE_HIGH_LEVEL ? PRICE_THRESHOLD_HIGH : PRICE_THRESHOLD;
+  const triggered = absDelta >= limite;
   const props     = {};
 
   if (triggered) {
@@ -40,5 +42,5 @@ export function calcPriceChange(newPrice, custoRef) {
     props['Alteração de']     = { number: 0 };
   }
 
-  return { triggered, delta, absDelta, pct, props };
+  return { triggered, delta, absDelta, props };
 }

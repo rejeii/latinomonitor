@@ -11,7 +11,7 @@ import { buscarProdutos, atualizarProduto, prepararDatabases } from './notion.js
 import { scrapeProduto } from './scrapers.js';
 import { calcPriceChange } from './priceChange.js';
 import { enviarLotePrecos, enviarLoteEsgotados, enviarLoteVoltou, enviarResumo, enviarErro, enviarInicio, NOMES } from './discord.js';
-import { DELAY_MS, NAV_TIMEOUT_MS, PRICE_THRESHOLD_PCT, PRICE_FLOOR } from './config.js';
+import { DELAY_MS, NAV_TIMEOUT_MS, PRICE_THRESHOLD, PRICE_THRESHOLD_HIGH, PRICE_HIGH_LEVEL } from './config.js';
 
 chromium.use(StealthPlugin());
 
@@ -130,8 +130,8 @@ async function main() {
       } else if (change?.triggered) {
         const seta = change.delta > 0 ? '▲' : '▼';
         log('[ALERTA ' + seta + ']', tag(produto), produto.nome,
-            `— R$${price.toFixed(2)} (ref R$${(produto.custoRef ?? 0).toFixed(2)}, Δ R$${change.delta.toFixed(2)}, ${change.pct.toFixed(1)}%)`);
-        precoAlerts.push({ produto, preco: price, delta: change.delta, pct: change.pct, dbNome: labelDb(produto.dbId), menor, novoMenor });
+            `— R$${price.toFixed(2)} (ref R$${(produto.custoRef ?? 0).toFixed(2)}, Δ R$${change.delta.toFixed(2)})`);
+        precoAlerts.push({ produto, preco: price, delta: change.delta, dbNome: labelDb(produto.dbId), menor, novoMenor });
         precoAlt++; conta(produto, 'preco');
       } else {
         log('[ok]', tag(produto), produto.nome, `— R$${price.toFixed(2)}`);
@@ -163,7 +163,7 @@ async function main() {
     .join(', ');
 
   const totais =
-    `Limite de alerta: ≥ ${PRICE_THRESHOLD_PCT}% (mín R$${PRICE_FLOOR})\n` +
+    `Limite de alerta: R$${PRICE_THRESHOLD} (R$${PRICE_THRESHOLD_HIGH} acima de R$${PRICE_HIGH_LEVEL})\n` +
     `Total verificado: ${produtos.length}\n` +
     `✅ Estáveis: ${est}\n` +
     `📈 Preço alterado: ${precoAlt}\n` +

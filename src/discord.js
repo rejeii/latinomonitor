@@ -48,7 +48,7 @@ async function postEmbeds(webhook, embeds) {
 }
 
 function embedPreco(item) {
-  const { produto, preco, delta, pct, dbNome, menor, novoMenor } = item;
+  const { produto, preco, delta, dbNome, menor, novoMenor } = item;
   const subiu = delta > 0;
   const fields = [
     { name: 'Fornecedor',     value: NOMES[produto.fornecedor] || produto.fornecedor,            inline: true },
@@ -56,7 +56,7 @@ function embedPreco(item) {
     { name: '​',         value: '​',                                                   inline: true },
     { name: 'Preço anterior', value: brl(produto.custoRef ?? produto.custoAtual),                inline: true },
     { name: 'Preço atual',    value: brl(preco),                                                 inline: true },
-    { name: 'Diferença',      value: (subiu ? '+' : '-') + brl(Math.abs(delta)) + ` (${pct.toFixed(1)}%)`, inline: true },
+    { name: 'Diferença',      value: (subiu ? '+' : '-') + brl(Math.abs(delta)),                 inline: true },
   ];
   if (menor != null) {
     fields.push({ name: 'Menor histórico', value: brl(menor) + (novoMenor ? '  🔻 novo!' : ''),  inline: true });
