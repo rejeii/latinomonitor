@@ -21,6 +21,14 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
 const log   = (...a) => console.log(new Date().toISOString(), ...a);
 const tag   = p => `[${NOMES[p.fornecedor] || p.fornecedor}]`;
 
+// Histórico de preço diário (compacto) para o menor preço dos últimos 30 dias.
+const diaSP = (offset = 0) => {
+  const d = new Date(); d.setDate(d.getDate() - offset);
+  return d.toLocaleDateString('en-CA', { timeZone: 'America/Sao_Paulo' }).replace(/-/g, ''); // YYYYMMDD
+};
+const parseHist     = s => { const m = {}; (s || '').split(',').forEach(e => { const [d, p] = e.split(':'); if (d && p) m[d] = parseFloat(p); }); return m; };
+const serializeHist = m => Object.entries(m).map(([d, p]) => `${d}:${p}`).join(',');
+
 async function main() {
   log('=== LatinoGG Monitor (Playwright) iniciado ===');
 
@@ -104,15 +112,25 @@ async function main() {
       const voltou = produto.status === 'Esgotado';   // estava esgotado no Notion → voltou
       const change = calcPriceChange(price, produto.custoRef);
 
-      // Menor preço histórico
+      // Menor preço histórico (todo o período)
       const menor     = (produto.menorPreco == null || price < produto.menorPreco) ? price : produto.menorPreco;
       const novoMenor = produto.menorPreco == null || price < produto.menorPreco;
 
+      // Menor preço dos últimos 30 dias (histórico diário, podado a 30 dias)
+      const hist = parseHist(produto.hist30);
+      const hoje = diaSP(0);
+      hist[hoje] = hist[hoje] != null ? Math.min(hist[hoje], price) : price;
+      const limite30 = diaSP(30);
+      for (const d of Object.keys(hist)) if (d < limite30) delete hist[d];
+      const menor30     = Math.min(...Object.values(hist));
+      const novoMenor30 = price <= menor30;
+
       const props = {
-        'Custo Atual': { number: price },
-        'Menor Preço': { number: menor },
-        'Data':        { date: { start: new Date().toISOString() } },
-        'Status':      { select: { name: status } },
+        'Custo Atual':   { number: price },
+        'Menor Preço':   { number: menor },
+        'Histórico 30d': { rich_text: [{ text: { content: serializeHist(hist) } }] },
+        'Data':          { date: { start: new Date().toISOString() } },
+        'Status':        { select: { name: status } },
       };
       if (change) Object.assign(props, change.props);
       if (voltou) {
@@ -131,7 +149,7 @@ async function main() {
         const seta = change.delta > 0 ? '▲' : '▼';
         log('[ALERTA ' + seta + ']', tag(produto), produto.nome,
             `— R$${price.toFixed(2)} (ref R$${(produto.custoRef ?? 0).toFixed(2)}, Δ R$${change.delta.toFixed(2)})`);
-        precoAlerts.push({ produto, preco: price, delta: change.delta, dbNome: labelDb(produto.dbId), menor, novoMenor });
+        precoAlerts.push({ produto, preco: price, delta: change.delta, dbNome: labelDb(produto.dbId), menor, novoMenor, novoMenor30 });
         precoAlt++; conta(produto, 'preco');
       } else {
         log('[ok]', tag(produto), produto.nome, `— R$${price.toFixed(2)}`);

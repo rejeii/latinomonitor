@@ -58,12 +58,13 @@ export async function buscarProdutos() {
         const custoAtual = props['Custo Atual']?.number ?? null;
         const custoRef   = props['Custo Referência']?.number ?? null;
         const menorPreco = props['Menor Preço']?.number ?? null;
+        const hist30     = props['Histórico 30d']?.rich_text?.[0]?.plain_text || '';
         const status     = props['Status']?.select?.name ?? null;
         const fornecedor = detectarFornecedor(url);
 
         if (!url || !fornecedor) continue;
 
-        produtos.push({ pageId: page.id, nome, url, custoAtual, custoRef, menorPreco, status, fornecedor, dbId });
+        produtos.push({ pageId: page.id, nome, url, custoAtual, custoRef, menorPreco, hist30, status, fornecedor, dbId });
       }
 
       cursor = json.has_more ? json.next_cursor : null;
@@ -86,10 +87,12 @@ export async function prepararDatabases() {
       const json = await notionReq('GET', `databases/${dbId}`, null);
       nomes[dbId] = (json.title || []).map(t => t.plain_text).join('').trim() || dbId.slice(0, 8);
 
-      if (!Object.keys(json.properties || {}).includes('Menor Preço')) {
-        await notionReq('PATCH', `databases/${dbId}`, {
-          properties: { 'Menor Preço': { number: { format: 'real' } } },
-        });
+      const existentes = Object.keys(json.properties || {});
+      const criar = {};
+      if (!existentes.includes('Menor Preço'))   criar['Menor Preço']   = { number: { format: 'real' } };
+      if (!existentes.includes('Histórico 30d')) criar['Histórico 30d'] = { rich_text: {} };
+      if (Object.keys(criar).length) {
+        await notionReq('PATCH', `databases/${dbId}`, { properties: criar });
       }
     } catch {
       nomes[dbId] = dbId.slice(0, 8);

@@ -48,7 +48,7 @@ async function postEmbeds(webhook, embeds) {
 }
 
 function embedPreco(item) {
-  const { produto, preco, delta, dbNome, menor, novoMenor } = item;
+  const { produto, preco, delta, dbNome, menor, novoMenor, novoMenor30 } = item;
   const subiu = delta > 0;
   const fields = [
     { name: 'Fornecedor',     value: NOMES[produto.fornecedor] || produto.fornecedor,            inline: true },
@@ -61,12 +61,14 @@ function embedPreco(item) {
   if (menor != null) {
     fields.push({ name: 'Menor histórico', value: brl(menor) + (novoMenor ? '  🔻 novo!' : ''),  inline: true });
   }
+  // Sinal de compra: queda que também é o menor preço dos últimos 30 dias
+  const badge30 = (!subiu && novoMenor30) ? '\n🟢 **Menor preço dos últimos 30 dias!**' : '';
   return {
-    title:       (subiu ? '📈  Preço subiu' : '📉  Preço caiu'),
+    title:       (subiu ? '🔼  Preço subiu' : '🔽  Preço caiu'),
     // subiu = verde, desceu = vermelho (convenção pedida)
     color:       subiu ? 3066993 : 15158332,
     url:         produto.url,
-    description: `**${produto.nome}**`,
+    description: `**${produto.nome}**` + badge30,
     fields,
     footer: { text: 'LatinoGG Monitor · ' + agora() },
   };
