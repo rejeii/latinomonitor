@@ -10,7 +10,7 @@ import StealthPlugin from 'puppeteer-extra-plugin-stealth';
 import { buscarProdutos, atualizarProduto, prepararDatabases } from './notion.js';
 import { scrapeProduto } from './scrapers.js';
 import { calcPriceChange } from './priceChange.js';
-import { enviarLotePrecos, enviarLoteEsgotados, enviarLoteVoltou, enviarResumo, enviarErro, enviarInicio, NOMES } from './discord.js';
+import { enviarLotePrecos, enviarLoteEsgotados, enviarLoteVoltou, enviarResumo, enviarErro, enviarInicio, enviarAvisoCampos, NOMES } from './discord.js';
 import { DELAY_MS, NAV_TIMEOUT_MS, PRICE_THRESHOLD, PRICE_THRESHOLD_HIGH, PRICE_HIGH_LEVEL } from './config.js';
 
 chromium.use(StealthPlugin());
@@ -36,8 +36,14 @@ async function main() {
   log(`Produtos para monitorar: ${produtos.length}`);
   if (!produtos.length) return;
 
-  const nomesDb = await prepararDatabases();
+  const { nomes: nomesDb, criados } = await prepararDatabases();
   const labelDb = id => nomesDb[id] || id.slice(0, 8);
+
+  // Avisa se algum campo foi criado automaticamente (tabela nova/crua)
+  if (criados.length) {
+    for (const c of criados) log('[CAMPOS CRIADOS]', c.db, '→', c.campos.join(', '));
+    await enviarAvisoCampos(criados);
+  }
 
   // Detecta produtos duplicados (mesma URL em 2+ linhas do Notion)
   const urlCount = {};

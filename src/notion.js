@@ -78,25 +78,45 @@ export async function atualizarProduto(pageId, props) {
   await notionReq('PATCH', `pages/${pageId}`, { properties: props });
 }
 
-// Pega o nome de cada database E garante que o campo "Menor Preço" exista
-// (cria automático se faltar). Retorna { dbId: 'Nome da database' }.
+// Todos os campos que o monitor escreve. Criados automaticamente se faltarem.
+// (O campo 'Produto' (url) NÃO entra aqui: é a entrada que você preenche.)
+const SCHEMA_MONITOR = {
+  'Custo Atual':      { number: { format: 'real' } },
+  'Custo Referência': { number: { format: 'real' } },
+  'Menor Preço':      { number: { format: 'real' } },
+  'Histórico 30d':    { rich_text: {} },
+  'Alteração':        { select: {} },
+  'Alteração de':     { number: { format: 'real' } },
+  'Status':           { select: {} },
+  'Data':             { date: {} },
+};
+
+// Pega o nome de cada database E garante que TODOS os campos do monitor existam
+// (cria os que faltarem). Retorna { nomes, criados } onde criados informa o que
+// foi criado por database (pra avisar no log e no Discord).
 export async function prepararDatabases() {
-  const nomes = {};
+  const nomes   = {};
+  const criados = [];   // [{ db, campos: [...] }]
+
   for (const dbId of NOTION_DATABASE_IDS) {
     try {
       const json = await notionReq('GET', `databases/${dbId}`, null);
-      nomes[dbId] = (json.title || []).map(t => t.plain_text).join('').trim() || dbId.slice(0, 8);
+      const nome = (json.title || []).map(t => t.plain_text).join('').trim() || dbId.slice(0, 8);
+      nomes[dbId] = nome;
 
       const existentes = Object.keys(json.properties || {});
-      const criar = {};
-      if (!existentes.includes('Menor Preço'))   criar['Menor Preço']   = { number: { format: 'real' } };
-      if (!existentes.includes('Histórico 30d')) criar['Histórico 30d'] = { rich_text: {} };
-      if (Object.keys(criar).length) {
-        await notionReq('PATCH', `databases/${dbId}`, { properties: criar });
+      const novos = {};
+      for (const [campo, schema] of Object.entries(SCHEMA_MONITOR)) {
+        if (!existentes.includes(campo)) novos[campo] = schema;
+      }
+      if (Object.keys(novos).length) {
+        await notionReq('PATCH', `databases/${dbId}`, { properties: novos });
+        criados.push({ db: nome, campos: Object.keys(novos) });
       }
     } catch {
       nomes[dbId] = dbId.slice(0, 8);
     }
   }
-  return nomes;
+
+  return { nomes, criados };
 }

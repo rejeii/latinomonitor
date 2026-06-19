@@ -133,6 +133,18 @@ export async function enviarInicio(texto) {
   await postEmbeds(DISCORD_WEBHOOK_INICIO, [embed]).catch(() => {});
 }
 
+export async function enviarAvisoCampos(criados) {
+  if (!criados || !criados.length) return;
+  const desc = criados.map(c => `**${c.db}**: ${c.campos.join(', ')}`).join('\n');
+  const embed = {
+    title:       '🛠️  Campos criados automaticamente no Notion',
+    color:       16776960, // amarelo
+    description: desc,
+    footer:      { text: 'LatinoGG Monitor · ' + agora() },
+  };
+  await postEmbeds(DISCORD_WEBHOOK_INICIO || DISCORD_WEBHOOK_PRECOS, [embed]).catch(() => {});
+}
+
 export async function enviarResumo(texto) {
   const embed = {
     title:       '📊  Resumo do monitoramento',
