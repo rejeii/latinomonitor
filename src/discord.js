@@ -51,7 +51,8 @@ function embedPreco(produto, precoNovo, delta, dbNome) {
   const subiu = delta > 0;
   return {
     title:       (subiu ? '📈  Preço subiu' : '📉  Preço caiu'),
-    color:       subiu ? 15158332 : 3066993,
+    // subiu = verde, desceu = vermelho (convenção pedida)
+    color:       subiu ? 3066993 : 15158332,
     url:         produto.url,
     description: `**${produto.nome}**`,
     fields: [
