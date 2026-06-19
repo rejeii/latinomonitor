@@ -1,8 +1,11 @@
 // ============================================================
 //  LatinoGG Monitor — ponto de entrada (Playwright)
-//  Fluxo: Notion → navegador renderiza cada produto → compara
-//  com o Custo Referência → ESCREVE no Notion → acumula alertas
-//  → envia tudo em lote no Discord → resumo final.
+//  Fase 1: raspa todos os produtos (sem escrever).
+//  Canário: se um fornecedor vier majoritariamente sem preço,
+//           marca como suspeito (scraper quebrado) e SUPRIME
+//           escritas e alertas dele.
+//  Fase 2: escreve no Notion + acumula alertas (só não-suspeitos).
+//  Fim: envia alertas em lote + canário + resumo no Discord.
 // ============================================================
 
 import { chromium } from 'playwright-extra';
@@ -10,8 +13,8 @@ import StealthPlugin from 'puppeteer-extra-plugin-stealth';
 import { buscarProdutos, atualizarProduto, prepararDatabases } from './notion.js';
 import { scrapeProduto } from './scrapers.js';
 import { calcPriceChange } from './priceChange.js';
-import { enviarLotePrecos, enviarLoteEsgotados, enviarLoteVoltou, enviarResumo, enviarErro, enviarInicio, enviarAvisoCampos, NOMES } from './discord.js';
-import { DELAY_MS, NAV_TIMEOUT_MS, PRICE_THRESHOLD, PRICE_THRESHOLD_HIGH, PRICE_HIGH_LEVEL } from './config.js';
+import { enviarLotePrecos, enviarLoteEsgotados, enviarLoteVoltou, enviarResumo, enviarErro, enviarInicio, enviarAvisoCampos, enviarCanario, NOMES } from './discord.js';
+import { DELAY_MS, NAV_TIMEOUT_MS, PRICE_THRESHOLD, PRICE_THRESHOLD_HIGH, PRICE_HIGH_LEVEL, CANARY_RATIO, CANARY_MIN } from './config.js';
 
 chromium.use(StealthPlugin());
 
@@ -65,10 +68,43 @@ async function main() {
   context.setDefaultNavigationTimeout(NAV_TIMEOUT_MS);
   const page = await context.newPage();
 
-  // Acumuladores — Discord só é chamado DEPOIS do loop (em lote)
-  const precoAlerts    = [];   // { produto, preco, delta, dbNome }  (subiu OU desceu)
-  const esgotadoAlerts = [];   // { produto, dbNome }  (apenas novas transições)
-  const restockAlerts  = [];   // { produto, preco, dbNome }  (voltou ao estoque)
+  // ── FASE 1: raspa tudo (sem escrever) ──
+  const resultados = [];
+  for (const produto of produtos) {
+    try {
+      const s = await scrapeProduto(page, produto);  // { price, status, blocked }
+      resultados.push({ produto, ...s });
+    } catch (e) {
+      resultados.push({ produto, erro: e.message });
+    }
+    await sleep(DELAY_MS);
+  }
+  await browser.close();
+
+  // ── CANÁRIO: fornecedor majoritariamente sem preço = scraper quebrado ──
+  const bruto = {};
+  for (const r of resultados) {
+    const f = r.produto.fornecedor;
+    (bruto[f] ??= { total: 0, ruins: 0 }).total++;
+    if (r.erro || !(r.price > 0)) bruto[f].ruins++;   // esgotado/sem-preço/bloqueado/erro
+  }
+  const suspeitos = new Set();
+  const canarios  = [];
+  for (const [f, b] of Object.entries(bruto)) {
+    const pct = b.total ? b.ruins / b.total : 0;
+    if (b.total >= CANARY_MIN && pct >= CANARY_RATIO) {
+      suspeitos.add(f);
+      canarios.push({ fornecedor: f, total: b.total, ruins: b.ruins, pct });
+    }
+  }
+  for (const c of canarios) {
+    log(`[CANÁRIO] ${NOMES[c.fornecedor] || c.fornecedor}: ${c.ruins}/${c.total} sem preço (${Math.round(c.pct * 100)}%) → SUPRIMIDO`);
+  }
+
+  // Acumuladores — Discord só é chamado DEPOIS do processamento (em lote)
+  const precoAlerts    = [];
+  const esgotadoAlerts = [];
+  const restockAlerts  = [];
 
   const stats   = {};
   const statsDb = {};
@@ -77,20 +113,32 @@ async function main() {
   const bumpDb  = (dbId, key) => { (statsDb[dbId] ??= novo())[key]++; };
   const conta   = (p, key)    => { bump(p.fornecedor, key); bumpDb(p.dbId, key); };
 
-  let est = 0, precoAlt = 0, esgotadoTot = 0, esgotadoNovo = 0, voltouCount = 0, erros = 0, bloqueados = 0;
+  let est = 0, precoAlt = 0, esgotadoTot = 0, esgotadoNovo = 0, voltouCount = 0, erros = 0, bloqueados = 0, suprimidos = 0;
 
-  for (const produto of produtos) {
+  // ── FASE 2: processa (escreve + alerta), pulando fornecedores suspeitos ──
+  for (const r of resultados) {
+    const { produto } = r;
+
+    // Canário: não escreve nem alerta o fornecedor suspeito (preserva o Notion)
+    if (suspeitos.has(produto.fornecedor)) { suprimidos++; continue; }
+
     try {
-      const { price, status, blocked } = await scrapeProduto(page, produto);
+      if (r.erro) {
+        log('[ERRO]', tag(produto), produto.nome, '—', r.erro);
+        erros++; conta(produto, 'erro');
+        continue;
+      }
+
+      const { price, status, blocked } = r;
 
       // ── Bloqueado (Cloudflare não liberou) ──
       if (blocked) {
         log('[BLOQUEADO]', tag(produto), produto.nome);
         bloqueados++; conta(produto, 'bloqueado');
-        await sleep(DELAY_MS); continue;
+        continue;
       }
 
-      // ── Esgotado: escreve SEMPRE; alerta só na transição ──
+      // ── Esgotado: escreve; alerta só na transição ──
       if (status === 'Esgotado') {
         esgotadoTot++; conta(produto, 'esgotado');
         await atualizarProduto(produto.pageId, {
@@ -104,18 +152,19 @@ async function main() {
         } else {
           log('[esgotado]', tag(produto), produto.nome);
         }
-        await sleep(DELAY_MS); continue;
+        await sleep(150);
+        continue;
       }
 
-      // ── Sem preço (falha de leitura) ──
+      // ── Sem preço (não deve cair aqui — price<=0 só com erro/esgotado) ──
       if (!price || price <= 0) {
         log('[SEM PREÇO]', tag(produto), produto.nome);
         erros++; conta(produto, 'erro');
-        await sleep(DELAY_MS); continue;
+        continue;
       }
 
-      // ── Em estoque: escreve SEMPRE, depois decide alerta ──
-      const voltou = produto.status === 'Esgotado';   // estava esgotado no Notion → voltou
+      // ── Em estoque: escreve, depois decide alerta ──
+      const voltou = produto.status === 'Esgotado';
       const change = calcPriceChange(price, produto.custoRef);
 
       // Menor preço histórico (todo o período)
@@ -140,7 +189,6 @@ async function main() {
       };
       if (change) Object.assign(props, change.props);
       if (voltou) {
-        // ao voltar do esgotado, reseta o baseline pro preço atual
         props['Custo Referência'] = { number: price };
         props['Alteração']        = { select: { name: 'Estável' } };
         props['Alteração de']     = { number: 0 };
@@ -162,20 +210,20 @@ async function main() {
         est++; conta(produto, 'ok');
       }
 
+      await sleep(150);
+
     } catch (e) {
       log('[ERRO]', tag(produto), produto.nome, '—', e.message);
       erros++; conta(produto, 'erro');
     }
-    await sleep(DELAY_MS);
   }
-
-  await browser.close();
 
   // ── Envia os alertas em LOTE (até 10 por mensagem) ──
   try {
     await enviarLotePrecos(precoAlerts);
     await enviarLoteEsgotados(esgotadoAlerts);
     await enviarLoteVoltou(restockAlerts);
+    await enviarCanario(canarios);
   } catch (e) {
     log('Falha ao enviar alertas em lote:', e.message);
   }
@@ -186,6 +234,10 @@ async function main() {
     .map(([id, s]) => `${labelDb(id)}: ${s.esgNovo}`)
     .join(', ');
 
+  const linhaCanario = canarios.length
+    ? '\n🐤 Suprimidos (scraper suspeito): ' + suprimidos + ' — ' + canarios.map(c => NOMES[c.fornecedor] || c.fornecedor).join(', ')
+    : '';
+
   const totais =
     `Limite de alerta: R$${PRICE_THRESHOLD} (R$${PRICE_THRESHOLD_HIGH} acima de R$${PRICE_HIGH_LEVEL})\n` +
     `Total verificado: ${produtos.length}\n` +
@@ -195,7 +247,8 @@ async function main() {
     `🔄 Voltaram ao estoque: ${voltouCount}\n` +
     `⛔ Bloqueados: ${bloqueados}\n` +
     `❌ Erros: ${erros}` +
-    (duplicados.length ? `\n⚠️ Duplicados (mesma URL): ${duplicados.length}` : '');
+    (duplicados.length ? `\n⚠️ Duplicados (mesma URL): ${duplicados.length}` : '') +
+    linhaCanario;
 
   const porFornecedor = Object.entries(stats).map(([f, s]) =>
     `• ${NOMES[f] || f}: ${s.ok} ok · ${s.preco} alt · ${s.esgotado} esg · ${s.voltou} volt · ${s.bloqueado} bloq · ${s.erro} erro`

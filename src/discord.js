@@ -145,6 +145,20 @@ export async function enviarAvisoCampos(criados) {
   await postEmbeds(DISCORD_WEBHOOK_INICIO || DISCORD_WEBHOOK_PRECOS, [embed]).catch(() => {});
 }
 
+export async function enviarCanario(canarios) {
+  if (!canarios || !canarios.length) return;
+  const desc = canarios
+    .map(c => `**${NOMES[c.fornecedor] || c.fornecedor}**: ${c.ruins}/${c.total} sem preço (${Math.round(c.pct * 100)}%) — alertas e atualizações **suprimidos**`)
+    .join('\n');
+  const embed = {
+    title:       '🐤  Scraper possivelmente quebrado',
+    color:       15105570, // laranja
+    description: desc + '\n\nProvável mudança no site do fornecedor. Confira o scraper antes de confiar nos dados desse fornecedor.',
+    footer:      { text: 'LatinoGG Monitor · ' + agora() },
+  };
+  await postEmbeds(DISCORD_WEBHOOK_INICIO || DISCORD_WEBHOOK_PRECOS, [embed]).catch(() => {});
+}
+
 export async function enviarResumo(texto) {
   const embed = {
     title:       '📊  Resumo do monitoramento',

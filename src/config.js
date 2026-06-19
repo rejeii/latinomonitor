@@ -35,3 +35,9 @@ export const NAV_TIMEOUT_MS = Number(process.env.NAV_TIMEOUT_MS || 30000);
 
 // Delay entre produtos (ms) — não martelar os fornecedores
 export const DELAY_MS = Number(process.env.DELAY_MS || 800);
+
+// Canário (detector de scraper quebrado): se um fornecedor com pelo menos
+// CANARY_MIN produtos vier com CANARY_RATIO (fração) sem preço, é tratado como
+// scraper quebrado → suprime escritas e alertas dele.
+export const CANARY_RATIO = Number(process.env.CANARY_RATIO || 0.6);
+export const CANARY_MIN   = Number(process.env.CANARY_MIN   || 10);
