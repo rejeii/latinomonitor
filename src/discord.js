@@ -170,6 +170,18 @@ export async function enviarResumo(texto) {
   await postEmbeds(DISCORD_WEBHOOK_INICIO || DISCORD_WEBHOOK_PRECOS, [embed]).catch(() => {});
 }
 
+export async function enviarAvisoUso(uso) {
+  const embed = {
+    title:       '⏱️  Minutos do GitHub Actions chegando ao limite',
+    color:       15105570, // laranja
+    description:
+      `Uso estimado neste mês: **${uso.usado} / ${uso.limite} min** (~${uso.pct}%).\n` +
+      `Ao passar de ~85%, deixe o repositório **público** (Actions ilimitado) pra o monitor não parar.`,
+    footer:      { text: 'LatinoGG Monitor · ' + agora() },
+  };
+  await postEmbeds(DISCORD_WEBHOOK_INICIO || DISCORD_WEBHOOK_PRECOS, [embed]).catch(() => {});
+}
+
 export async function enviarErro(mensagem) {
   const embed = {
     title:       '⚠️  Erro no Monitor LatinoGG',

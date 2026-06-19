@@ -41,3 +41,8 @@ export const DELAY_MS = Number(process.env.DELAY_MS || 800);
 // scraper quebrado → suprime escritas e alertas dele.
 export const CANARY_RATIO = Number(process.env.CANARY_RATIO || 0.6);
 export const CANARY_MIN   = Number(process.env.CANARY_MIN   || 10);
+
+// Aviso de minutos do GitHub Actions: alerta no Discord ao passar de
+// ACTIONS_ALERT_PCT% do total ACTIONS_LIMIT_MIN (free do plano privado = 2000).
+export const ACTIONS_LIMIT_MIN = Number(process.env.ACTIONS_LIMIT_MIN || 2000);
+export const ACTIONS_ALERT_PCT = Number(process.env.ACTIONS_ALERT_PCT || 80);

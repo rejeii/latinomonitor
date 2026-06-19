@@ -5,6 +5,10 @@ on:
   # Isso evita o auto-disable de 60 dias do schedule nativo do GitHub.
   workflow_dispatch: {}   # botão "Run workflow" na aba Actions + disparo do cron-job.org
 
+permissions:
+  contents: read
+  actions: read   # necessário pro aviso de minutos (lê os runs do mês)
+
 jobs:
   monitor:
     runs-on: ubuntu-latest
@@ -32,6 +36,10 @@ jobs:
           PRICE_THRESHOLD:           ${{ vars.PRICE_THRESHOLD }}
           PRICE_THRESHOLD_HIGH:      ${{ vars.PRICE_THRESHOLD_HIGH }}
           PRICE_HIGH_LEVEL:          ${{ vars.PRICE_HIGH_LEVEL }}
+          ACTIONS_LIMIT_MIN:         ${{ vars.ACTIONS_LIMIT_MIN }}
+          ACTIONS_ALERT_PCT:         ${{ vars.ACTIONS_ALERT_PCT }}
+          GH_TOKEN:                  ${{ github.token }}
+          GH_REPO:                   ${{ github.repository }}
         run: npm start
 
       # Avisa no Discord se QUALQUER passo acima falhar (npm/playwright/node/infra)

@@ -13,8 +13,9 @@ import StealthPlugin from 'puppeteer-extra-plugin-stealth';
 import { buscarProdutos, atualizarProduto, prepararDatabases } from './notion.js';
 import { scrapeProduto } from './scrapers.js';
 import { calcPriceChange } from './priceChange.js';
-import { enviarLotePrecos, enviarLoteEsgotados, enviarLoteVoltou, enviarResumo, enviarErro, enviarInicio, enviarAvisoCampos, enviarCanario, NOMES } from './discord.js';
-import { DELAY_MS, NAV_TIMEOUT_MS, PRICE_THRESHOLD, PRICE_THRESHOLD_HIGH, PRICE_HIGH_LEVEL, CANARY_RATIO, CANARY_MIN } from './config.js';
+import { enviarLotePrecos, enviarLoteEsgotados, enviarLoteVoltou, enviarResumo, enviarErro, enviarInicio, enviarAvisoCampos, enviarCanario, enviarAvisoUso, NOMES } from './discord.js';
+import { DELAY_MS, NAV_TIMEOUT_MS, PRICE_THRESHOLD, PRICE_THRESHOLD_HIGH, PRICE_HIGH_LEVEL, CANARY_RATIO, CANARY_MIN, ACTIONS_ALERT_PCT } from './config.js';
+import { checarUsoActions } from './usage.js';
 
 chromium.use(StealthPlugin());
 
@@ -269,6 +270,19 @@ async function main() {
   log('========================================');
 
   await enviarResumo(resumo);
+
+  // ── Aviso de minutos do GitHub Actions ──
+  try {
+    const uso = await checarUsoActions();
+    if (uso && uso.publico) {
+      log('[USO] repositório público — Actions ilimitado');
+    } else if (uso) {
+      log(`[USO] GitHub Actions ~${uso.usado}/${uso.limite} min (${uso.pct}%)`);
+      if (uso.pct >= ACTIONS_ALERT_PCT) await enviarAvisoUso(uso);
+    }
+  } catch (e) {
+    log('Falha ao checar uso de Actions:', e.message);
+  }
 }
 
 main().catch(async (e) => {
