@@ -229,6 +229,22 @@ async function main() {
     log('Falha ao enviar alertas em lote:', e.message);
   }
 
+  // ── Uso de minutos do GitHub Actions (vai no resumo) ──
+  let linhaUso = '';
+  let usoInfo  = null;
+  try {
+    usoInfo = await checarUsoActions();
+    if (usoInfo && usoInfo.publico) {
+      linhaUso = '\n⏱️ Actions: repositório público (ilimitado)';
+      log('[USO] repositório público — Actions ilimitado');
+    } else if (usoInfo) {
+      linhaUso = `\n⏱️ Actions: ~${usoInfo.usado}/${usoInfo.limite} min (${usoInfo.pct}%)`;
+      log(`[USO] GitHub Actions ~${usoInfo.usado}/${usoInfo.limite} min (${usoInfo.pct}%)`);
+    }
+  } catch (e) {
+    log('Falha ao checar uso de Actions:', e.message);
+  }
+
   // ── Resumo ──
   const novosPorDb = Object.entries(statsDb)
     .filter(([, s]) => s.esgNovo > 0)
@@ -249,7 +265,8 @@ async function main() {
     `⛔ Bloqueados: ${bloqueados}\n` +
     `❌ Erros: ${erros}` +
     (duplicados.length ? `\n⚠️ Duplicados (mesma URL): ${duplicados.length}` : '') +
-    linhaCanario;
+    linhaCanario +
+    linhaUso;
 
   const porFornecedor = Object.entries(stats).map(([f, s]) =>
     `• ${NOMES[f] || f}: ${s.ok} ok · ${s.preco} alt · ${s.esgotado} esg · ${s.voltou} volt · ${s.bloqueado} bloq · ${s.erro} erro`
@@ -271,17 +288,9 @@ async function main() {
 
   await enviarResumo(resumo);
 
-  // ── Aviso de minutos do GitHub Actions ──
-  try {
-    const uso = await checarUsoActions();
-    if (uso && uso.publico) {
-      log('[USO] repositório público — Actions ilimitado');
-    } else if (uso) {
-      log(`[USO] GitHub Actions ~${uso.usado}/${uso.limite} min (${uso.pct}%)`);
-      if (uso.pct >= ACTIONS_ALERT_PCT) await enviarAvisoUso(uso);
-    }
-  } catch (e) {
-    log('Falha ao checar uso de Actions:', e.message);
+  // Aviso mais visível (embed separado) se passar do limite
+  if (usoInfo && !usoInfo.publico && usoInfo.pct >= ACTIONS_ALERT_PCT) {
+    await enviarAvisoUso(usoInfo);
   }
 }
 
