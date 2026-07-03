@@ -4,7 +4,7 @@
 //  saiam, não só os primeiros.
 // ============================================================
 
-import { DISCORD_WEBHOOK_PRECOS, DISCORD_WEBHOOK_ESGOTADOS, DISCORD_WEBHOOK_INICIO } from './config.js';
+import { DISCORD_WEBHOOK_PRECOS, DISCORD_WEBHOOK_ESGOTADOS, DISCORD_WEBHOOK_INICIO, DISCORD_WEBHOOK_ERROS } from './config.js';
 
 export const NOMES = {
   visaovip:           'VisãoVip',
@@ -143,6 +143,29 @@ export async function enviarAvisoCampos(criados) {
     footer:      { text: 'LatinoGG Monitor · ' + agora() },
   };
   await postEmbeds(DISCORD_WEBHOOK_INICIO || DISCORD_WEBHOOK_PRECOS, [embed]).catch(() => {});
+}
+
+// Relatório de erros num canal dedicado (opcional).
+export async function enviarRelatorioErros(erros) {
+  if (!DISCORD_WEBHOOK_ERROS || !erros.length) return;
+
+  const linhas = erros.slice(0, 20).map(e => {
+    const forn = e.fornecedor ? ` · ${e.fornecedor}` : '';
+    const db   = e.database ? ` · ${e.database}` : '';
+    const msg  = e.mensagem ? `\n   ↳ ${e.mensagem}` : '';
+    return `**[${e.tipo}]** ${e.nome}${forn}${db}${msg}`;
+  });
+  let desc = linhas.join('\n');
+  if (erros.length > 20) desc += `\n\n…e mais ${erros.length - 20} — ver database de erros`;
+  if (desc.length > 4000) desc = desc.slice(0, 3990) + '…';
+
+  const embed = {
+    title:       `⚠️  ${erros.length} erro(s) no monitoramento`,
+    color:       15158332, // vermelho
+    description: desc,
+    footer:      { text: 'LatinoGG Monitor · ' + agora() },
+  };
+  await postEmbeds(DISCORD_WEBHOOK_ERROS, [embed]).catch(() => {});
 }
 
 export async function enviarCanario(canarios) {

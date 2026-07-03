@@ -49,3 +49,6 @@ export const ACTIONS_ALERT_PCT = Number(process.env.ACTIONS_ALERT_PCT || 80);
 
 // Database de erros no Notion (opcional). Cada erro do run vira uma linha.
 export const NOTION_ERROR_DB_ID = process.env.NOTION_ERROR_DB_ID || '';
+
+// Canal dedicado de erros no Discord (opcional). Se vazio, erros só no resumo.
+export const DISCORD_WEBHOOK_ERROS = process.env.DISCORD_WEBHOOK_ERROS || '';
