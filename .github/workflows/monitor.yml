@@ -30,6 +30,7 @@ jobs:
         env:
           NOTION_TOKEN:              ${{ secrets.NOTION_TOKEN }}
           NOTION_DATABASE_IDS:       ${{ secrets.NOTION_DATABASE_IDS }}
+          NOTION_ERROR_DB_ID:        ${{ vars.NOTION_ERROR_DB_ID }}
           DISCORD_WEBHOOK_PRECOS:    ${{ secrets.DISCORD_WEBHOOK_PRECOS }}
           DISCORD_WEBHOOK_ESGOTADOS: ${{ secrets.DISCORD_WEBHOOK_ESGOTADOS }}
           DISCORD_WEBHOOK_INICIO:    ${{ secrets.DISCORD_WEBHOOK_INICIO }}

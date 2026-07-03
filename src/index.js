@@ -10,11 +10,11 @@
 
 import { chromium } from 'playwright-extra';
 import StealthPlugin from 'puppeteer-extra-plugin-stealth';
-import { buscarProdutos, atualizarProduto, prepararDatabases } from './notion.js';
+import { buscarProdutos, atualizarProduto, prepararDatabases, prepararErrorDb, registrarErro } from './notion.js';
 import { scrapeProduto } from './scrapers.js';
 import { calcPriceChange } from './priceChange.js';
 import { enviarLotePrecos, enviarLoteEsgotados, enviarLoteVoltou, enviarResumo, enviarErro, enviarInicio, enviarAvisoCampos, enviarCanario, enviarAvisoUso, NOMES } from './discord.js';
-import { DELAY_MS, NAV_TIMEOUT_MS, PRICE_THRESHOLD, PRICE_THRESHOLD_HIGH, PRICE_HIGH_LEVEL, CANARY_RATIO, CANARY_MIN, ACTIONS_ALERT_PCT } from './config.js';
+import { DELAY_MS, NAV_TIMEOUT_MS, PRICE_THRESHOLD, PRICE_THRESHOLD_HIGH, PRICE_HIGH_LEVEL, CANARY_RATIO, CANARY_MIN, ACTIONS_ALERT_PCT, NOTION_ERROR_DB_ID } from './config.js';
 import { checarUsoActions } from './usage.js';
 
 chromium.use(StealthPlugin());
@@ -42,6 +42,19 @@ async function main() {
 
   const { nomes: nomesDb, criados } = await prepararDatabases();
   const labelDb = id => nomesDb[id] || id.slice(0, 8);
+
+  // Coleta detalhada de erros do run (vai pro resumo e pra database de erros)
+  const errosDetalhe = [];
+  const pushErroProduto = (produto, tipo, mensagem, r) => errosDetalhe.push({
+    nome:       produto.nome,
+    url:        produto.url,
+    fornecedor: NOMES[produto.fornecedor] || produto.fornecedor,
+    database:   labelDb(produto.dbId),
+    tipo, mensagem,
+    statusLido: r?.status ?? null,
+    precoLido:  (typeof r?.price === 'number') ? r.price : null,
+    pageId:     produto.pageId,
+  });
 
   // Avisa se algum campo foi criado automaticamente (tabela nova/crua)
   if (criados.length) {
@@ -99,7 +112,14 @@ async function main() {
     }
   }
   for (const c of canarios) {
-    log(`[CANÁRIO] ${NOMES[c.fornecedor] || c.fornecedor}: ${c.ruins}/${c.total} sem preço (${Math.round(c.pct * 100)}%) → SUPRIMIDO`);
+    const fn = NOMES[c.fornecedor] || c.fornecedor;
+    log(`[CANÁRIO] ${fn}: ${c.ruins}/${c.total} sem preço (${Math.round(c.pct * 100)}%) → SUPRIMIDO`);
+    errosDetalhe.push({
+      nome: `Scraper suspeito — ${fn}`, url: null, fornecedor: fn, database: null,
+      tipo: 'Scraper suspeito',
+      mensagem: `${c.ruins}/${c.total} produtos sem preço (${Math.round(c.pct * 100)}%) — alertas e escritas suprimidos`,
+      statusLido: null, precoLido: null, pageId: null,
+    });
   }
 
   // Acumuladores — Discord só é chamado DEPOIS do processamento (em lote)
@@ -127,6 +147,7 @@ async function main() {
       if (r.erro) {
         log('[ERRO]', tag(produto), produto.nome, '—', r.erro);
         erros++; conta(produto, 'erro');
+        pushErroProduto(produto, 'Erro', r.erro, r);
         continue;
       }
 
@@ -136,6 +157,7 @@ async function main() {
       if (blocked) {
         log('[BLOQUEADO]', tag(produto), produto.nome);
         bloqueados++; conta(produto, 'bloqueado');
+        pushErroProduto(produto, 'Bloqueado', 'Cloudflare bloqueou a página', r);
         continue;
       }
 
@@ -161,6 +183,7 @@ async function main() {
       if (!price || price <= 0) {
         log('[SEM PREÇO]', tag(produto), produto.nome);
         erros++; conta(produto, 'erro');
+        pushErroProduto(produto, 'Sem preço', 'Não foi possível ler o preço', r);
         continue;
       }
 
@@ -216,6 +239,7 @@ async function main() {
     } catch (e) {
       log('[ERRO]', tag(produto), produto.nome, '—', e.message);
       erros++; conta(produto, 'erro');
+      pushErroProduto(produto, 'Erro', e.message, r);
     }
   }
 
@@ -280,7 +304,13 @@ async function main() {
     ? '\n\nDuplicados (limpar no Notion):\n' + duplicados.map(n => `• ${n}`).join('\n')
     : '';
 
-  const resumo = totais + '\n\nPor fornecedor:\n' + porFornecedor + '\n\nPor database:\n' + porDatabase + blocoDup;
+  const blocoErros = errosDetalhe.length
+    ? `\n\nErros (${errosDetalhe.length}${NOTION_ERROR_DB_ID ? ' — detalhes na database de erros' : ''}):\n` +
+      errosDetalhe.slice(0, 10).map(e => `• [${e.tipo}] ${e.nome}`).join('\n') +
+      (errosDetalhe.length > 10 ? `\n• …e mais ${errosDetalhe.length - 10}` : '')
+    : '';
+
+  const resumo = totais + '\n\nPor fornecedor:\n' + porFornecedor + '\n\nPor database:\n' + porDatabase + blocoDup + blocoErros;
 
   log('================ RESUMO ================');
   resumo.split('\n').forEach(l => log(l));
@@ -291,6 +321,29 @@ async function main() {
   // Aviso mais visível (embed separado) se passar do limite
   if (usoInfo && !usoInfo.publico && usoInfo.pct >= ACTIONS_ALERT_PCT) {
     await enviarAvisoUso(usoInfo);
+  }
+
+  // ── Registra os erros na database de erros do Notion ──
+  if (NOTION_ERROR_DB_ID && errosDetalhe.length) {
+    const runUrl = (process.env.GITHUB_SERVER_URL && process.env.GITHUB_REPOSITORY && process.env.GITHUB_RUN_ID)
+      ? `${process.env.GITHUB_SERVER_URL}/${process.env.GITHUB_REPOSITORY}/actions/runs/${process.env.GITHUB_RUN_ID}`
+      : null;
+    try {
+      const prep = await prepararErrorDb(NOTION_ERROR_DB_ID);
+      if (!prep.ok) {
+        log('[ERRO DB] não consegui acessar a database de erros (compartilhou com a integração?):', prep.erro || '');
+      } else {
+        if (prep.criados?.length) log('[ERRO DB] campos criados:', prep.criados.join(', '));
+        for (const e of errosDetalhe) {
+          try { await registrarErro(NOTION_ERROR_DB_ID, prep.tituloProp, { ...e, runUrl }); }
+          catch (err) { log('[ERRO DB] falha numa linha:', err.message); }
+          await sleep(200);
+        }
+        log(`[ERRO DB] ${errosDetalhe.length} erro(s) registrado(s) no Notion`);
+      }
+    } catch (e) {
+      log('[ERRO DB] falha geral:', e.message);
+    }
   }
 }
 

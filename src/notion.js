@@ -120,3 +120,59 @@ export async function prepararDatabases() {
 
   return { nomes, criados };
 }
+
+// ── Database de erros ──────────────────────────────────────
+// Campos criados automaticamente se faltarem (fora o título, que já existe).
+const ERROR_SCHEMA = {
+  'URL':         { url: {} },
+  'Fornecedor':  { select: {} },
+  'Database':    { rich_text: {} },
+  'Tipo':        { select: {} },
+  'Mensagem':    { rich_text: {} },
+  'Status lido': { rich_text: {} },
+  'Preço lido':  { number: { format: 'real' } },
+  'Data':        { date: {} },
+  'Run':         { url: {} },
+  'Page ID':     { rich_text: {} },
+};
+
+// Garante o schema da database de erros. Retorna { ok, tituloProp, criados }.
+export async function prepararErrorDb(dbId) {
+  if (!dbId) return { ok: false, erro: 'sem NOTION_ERROR_DB_ID' };
+  try {
+    const json  = await notionReq('GET', `databases/${dbId}`, null);
+    const props = json.properties || {};
+    const tituloProp = Object.entries(props).find(([, p]) => p.type === 'title')?.[0] || 'Name';
+
+    const existentes = Object.keys(props);
+    const criar = {};
+    for (const [campo, schema] of Object.entries(ERROR_SCHEMA)) {
+      if (!existentes.includes(campo)) criar[campo] = schema;
+    }
+    const criados = Object.keys(criar);
+    if (criados.length) await notionReq('PATCH', `databases/${dbId}`, { properties: criar });
+    return { ok: true, tituloProp, criados };
+  } catch (e) {
+    return { ok: false, erro: e.message };
+  }
+}
+
+// Cria uma linha na database de erros.
+export async function registrarErro(dbId, tituloProp, d) {
+  const txt = s => [{ text: { content: String(s).slice(0, 2000) } }];
+  const props = {
+    [tituloProp]: { title: txt(d.nome || '(sem nome)') },
+    'Tipo':       { select: { name: d.tipo || 'Erro' } },
+    'Data':       { date: { start: new Date().toISOString() } },
+  };
+  if (d.url)                            props['URL']         = { url: d.url };
+  if (d.fornecedor)                     props['Fornecedor']  = { select: { name: d.fornecedor } };
+  if (d.database)                       props['Database']    = { rich_text: txt(d.database) };
+  if (d.mensagem)                       props['Mensagem']    = { rich_text: txt(d.mensagem) };
+  if (d.statusLido)                     props['Status lido'] = { rich_text: txt(d.statusLido) };
+  if (typeof d.precoLido === 'number')  props['Preço lido']  = { number: d.precoLido };
+  if (d.runUrl)                         props['Run']         = { url: d.runUrl };
+  if (d.pageId)                         props['Page ID']     = { rich_text: txt(d.pageId) };
+
+  await notionReq('POST', 'pages', { parent: { database_id: dbId }, properties: props });
+}

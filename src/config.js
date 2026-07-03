@@ -46,3 +46,6 @@ export const CANARY_MIN   = Number(process.env.CANARY_MIN   || 10);
 // ACTIONS_ALERT_PCT% do total ACTIONS_LIMIT_MIN (free do plano privado = 2000).
 export const ACTIONS_LIMIT_MIN = Number(process.env.ACTIONS_LIMIT_MIN || 2000);
 export const ACTIONS_ALERT_PCT = Number(process.env.ACTIONS_ALERT_PCT || 80);
+
+// Database de erros no Notion (opcional). Cada erro do run vira uma linha.
+export const NOTION_ERROR_DB_ID = process.env.NOTION_ERROR_DB_ID || '';
