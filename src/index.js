@@ -323,23 +323,27 @@ async function main() {
     await enviarAvisoUso(usoInfo);
   }
 
-  // ── Registra os erros na database de erros do Notion ──
-  if (NOTION_ERROR_DB_ID && errosDetalhe.length) {
+  // ── Database de erros no Notion (prepara/verifica sempre; grava se houver erro) ──
+  if (NOTION_ERROR_DB_ID) {
     const runUrl = (process.env.GITHUB_SERVER_URL && process.env.GITHUB_REPOSITORY && process.env.GITHUB_RUN_ID)
       ? `${process.env.GITHUB_SERVER_URL}/${process.env.GITHUB_REPOSITORY}/actions/runs/${process.env.GITHUB_RUN_ID}`
       : null;
     try {
       const prep = await prepararErrorDb(NOTION_ERROR_DB_ID);
       if (!prep.ok) {
-        log('[ERRO DB] não consegui acessar a database de erros (compartilhou com a integração?):', prep.erro || '');
+        log('[ERRO DB] sem acesso à database de erros (compartilhou com a integração?):', prep.erro || '');
       } else {
         if (prep.criados?.length) log('[ERRO DB] campos criados:', prep.criados.join(', '));
-        for (const e of errosDetalhe) {
-          try { await registrarErro(NOTION_ERROR_DB_ID, prep.tituloProp, { ...e, runUrl }); }
-          catch (err) { log('[ERRO DB] falha numa linha:', err.message); }
-          await sleep(200);
+        if (errosDetalhe.length) {
+          for (const e of errosDetalhe) {
+            try { await registrarErro(NOTION_ERROR_DB_ID, prep.tituloProp, { ...e, runUrl }); }
+            catch (err) { log('[ERRO DB] falha numa linha:', err.message); }
+            await sleep(200);
+          }
+          log(`[ERRO DB] ${errosDetalhe.length} erro(s) registrado(s) no Notion`);
+        } else {
+          log('[ERRO DB] database acessível, 0 erros neste run');
         }
-        log(`[ERRO DB] ${errosDetalhe.length} erro(s) registrado(s) no Notion`);
       }
     } catch (e) {
       log('[ERRO DB] falha geral:', e.message);
