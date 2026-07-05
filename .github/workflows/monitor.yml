@@ -61,6 +61,16 @@ jobs:
           GH_REPO:                   ${{ github.repository }}
         run: npm start
 
+      # Screenshots dos produtos que falharam 2x (debug de seletor/Cloudflare)
+      - name: Publicar screenshots de debug
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: debug-screenshots
+          path: debug/
+          if-no-files-found: ignore
+          retention-days: 7
+
       # Avisa no Discord se QUALQUER passo acima falhar (npm/playwright/node/infra)
       - name: Avisar falha no Discord
         if: failure()

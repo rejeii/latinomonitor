@@ -70,6 +70,12 @@ function scrapeInPage(fornecedor) {
   return { price, status, blocked };
 }
 
+// Resultado de scrape que merece retry: erro, bloqueio ou sem preço
+// (esgotado NÃO é falha — é um estado legítimo do produto).
+export function resultadoRuim(r) {
+  return !!r.erro || !!r.blocked || (!(r.price > 0) && r.status !== 'Esgotado');
+}
+
 // Navega até a URL, espera renderizar e raspa preço + status.
 export async function scrapeProduto(page, produto) {
   const { url, fornecedor } = produto;

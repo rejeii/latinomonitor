@@ -8,10 +8,11 @@
 //  Fim: envia alertas em lote + canário + resumo no Discord.
 // ============================================================
 
+import { mkdir } from 'node:fs/promises';
 import { chromium } from 'playwright-extra';
 import StealthPlugin from 'puppeteer-extra-plugin-stealth';
 import { buscarProdutos, atualizarProduto, prepararDatabases, prepararErrorDb, registrarErro } from './notion.js';
-import { scrapeProduto } from './scrapers.js';
+import { scrapeProduto, resultadoRuim } from './scrapers.js';
 import { calcPriceChange, calcAlvo } from './priceChange.js';
 import { enviarLotePrecos, enviarLoteAlvos, enviarLoteEsgotados, enviarLoteVoltou, enviarResumo, enviarErro, enviarInicio, enviarAvisoCampos, enviarCanario, enviarAvisoUso, enviarRelatorioErros, NOMES } from './discord.js';
 import { DELAY_MS, NAV_TIMEOUT_MS, PRICE_THRESHOLD, PRICE_THRESHOLD_HIGH, PRICE_HIGH_LEVEL, CANARY_RATIO, CANARY_MIN, ACTIONS_ALERT_PCT, NOTION_ERROR_DB_ID } from './config.js';
@@ -85,15 +86,66 @@ async function main() {
   const page = await context.newPage();
 
   // ── FASE 1: raspa tudo (sem escrever) ──
-  const resultados = [];
-  for (const produto of produtos) {
+  // Agrupa por URL: linhas duplicadas no Notion reaproveitam o mesmo scrape.
+  const porUrl = new Map();   // url -> [produtos]
+  for (const p of produtos) {
+    const g = porUrl.get(p.url);
+    if (g) g.push(p); else porUrl.set(p.url, [p]);
+  }
+  if (porUrl.size < produtos.length) {
+    log(`URLs únicas: ${porUrl.size} (${produtos.length - porUrl.size} linha(s) duplicada(s) reaproveitam o scrape)`);
+  }
+
+  const scrapeUrl = async (produto) => {
     try {
-      const s = await scrapeProduto(page, produto);  // { price, status, blocked }
-      resultados.push({ produto, ...s });
+      return await scrapeProduto(page, produto);   // { price, status, blocked }
     } catch (e) {
-      resultados.push({ produto, erro: e.message });
+      return { erro: e.message };
     }
+  };
+
+  const resultadoUrl = new Map();   // url -> resultado
+  for (const [url, grupo] of porUrl) {
+    resultadoUrl.set(url, await scrapeUrl(grupo[0]));
     await sleep(DELAY_MS);
+  }
+
+  // ── RETRY: segunda tentativa só para quem falhou (erro/bloqueio/sem preço).
+  // Bloqueios da Cloudflare costumam se resolver na segunda visita. Quem
+  // continuar falhando ganha um screenshot em debug/ (vira artifact do run).
+  let retryFalhas = 0, retryRecuperados = 0, debugShots = 0;
+  const falhas = [...resultadoUrl.entries()].filter(([, r]) => resultadoRuim(r));
+  if (falhas.length) {
+    retryFalhas = falhas.length;
+    log(`[RETRY] ${falhas.length} URL(s) falharam na 1ª tentativa — tentando de novo`);
+    for (const [url] of falhas) {
+      const produto = porUrl.get(url)[0];
+      await sleep(DELAY_MS);
+      const novo = await scrapeUrl(produto);
+      if (!resultadoRuim(novo)) {
+        log('[RETRY OK]', tag(produto), produto.nome);
+        resultadoUrl.set(url, novo);
+        retryRecuperados++;
+      } else {
+        // A page ainda está na URL que falhou — fotografa pra diagnóstico
+        try {
+          await mkdir('debug', { recursive: true });
+          const arq = `debug/${String(++debugShots).padStart(2, '0')}-${produto.fornecedor}-${produto.nome.replace(/[^a-z0-9]+/gi, '_').slice(0, 60)}.png`;
+          await page.screenshot({ path: arq });
+          log('[RETRY FALHOU]', tag(produto), produto.nome, `— screenshot: ${arq}`);
+        } catch (e) {
+          log('[RETRY FALHOU]', tag(produto), produto.nome, `— screenshot falhou: ${e.message}`);
+        }
+      }
+    }
+    log(`[RETRY] recuperados: ${retryRecuperados}/${retryFalhas}`);
+  }
+
+  // Espalha o resultado de cada URL para todas as linhas que a usam
+  const resultados = [];
+  for (const [url, grupo] of porUrl) {
+    const r = resultadoUrl.get(url);
+    for (const produto of grupo) resultados.push({ produto, ...r });
   }
   await browser.close();
 
@@ -303,6 +355,8 @@ async function main() {
     `🔄 Voltaram ao estoque: ${voltouCount}\n` +
     `⛔ Bloqueados: ${bloqueados}\n` +
     `❌ Erros: ${erros}` +
+    (retryFalhas ? `\n🔁 Retry: ${retryFalhas} falha(s) na 1ª tentativa, ${retryRecuperados} recuperada(s)` : '') +
+    (debugShots ? `\n📸 Screenshots de debug: ${debugShots} (artifact do run no GitHub)` : '') +
     (pausados.length ? `\n⏸️ Pausados: ${pausados.length}` : '') +
     (duplicados.length ? `\n⚠️ Duplicados (mesma URL): ${duplicados.length}` : '') +
     linhaCanario +

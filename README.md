@@ -97,6 +97,18 @@ npm start
 
 ---
 
+## Resiliência do scrape
+
+- **Dedupe:** linhas do Notion com a mesma URL são raspadas **uma vez só** — o resultado
+  é reaproveitado em todas (o resumo continua apontando os duplicados pra limpeza).
+- **Retry:** quem falha na 1ª tentativa (erro, bloqueio da Cloudflare ou sem preço) ganha
+  uma **segunda visita** no fim da fase de scrape — bloqueios costumam se resolver na revisita.
+- **Screenshot de debug:** quem falha 2x é fotografado; as imagens saem como **artifact
+  `debug-screenshots`** do run no GitHub (guardadas por 7 dias) — diagnóstico de seletor
+  quebrado em segundos, sem adivinhação.
+
+---
+
 ## Limitações honestas
 
 - **AtacadoCollections + Cloudflare:** um navegador real tem chance boa de passar, mas o IP do
