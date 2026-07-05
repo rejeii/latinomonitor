@@ -33,7 +33,13 @@ async function notionReq(method, endpoint, body, _attempt = 0) {
   }
 
   const text = await res.text();
-  const json = text ? JSON.parse(text) : {};
+  // Gateway/proxy pode devolver HTML de erro (502 etc.) em vez de JSON
+  let json;
+  try {
+    json = text ? JSON.parse(text) : {};
+  } catch {
+    throw new Error(`Notion ${res.status}: resposta não-JSON — ${text.slice(0, 120).trim() || '(vazia)'}`);
+  }
   if (!res.ok || json.object === 'error') {
     throw new Error(`Notion ${res.status}: ${json.message || text || 'erro'}`);
   }
@@ -60,11 +66,14 @@ export async function buscarProdutos() {
         const menorPreco = props['Menor Preço']?.number ?? null;
         const hist30     = props['Histórico 30d']?.rich_text?.[0]?.plain_text || '';
         const status     = props['Status']?.select?.name ?? null;
+        const precoAlvo  = props['Preço Alvo']?.number ?? null;
+        const pausado    = props['Pausado']?.checkbox === true;
+        const alvoAtingido = props['Alvo Atingido']?.checkbox === true;
         const fornecedor = detectarFornecedor(url);
 
         if (!url || !fornecedor) continue;
 
-        produtos.push({ pageId: page.id, nome, url, custoAtual, custoRef, menorPreco, hist30, status, fornecedor, dbId });
+        produtos.push({ pageId: page.id, nome, url, custoAtual, custoRef, menorPreco, hist30, status, precoAlvo, pausado, alvoAtingido, fornecedor, dbId });
       }
 
       cursor = json.has_more ? json.next_cursor : null;
@@ -78,8 +87,10 @@ export async function atualizarProduto(pageId, props) {
   await notionReq('PATCH', `pages/${pageId}`, { properties: props });
 }
 
-// Todos os campos que o monitor escreve. Criados automaticamente se faltarem.
+// Campos que o monitor usa. Criados automaticamente se faltarem.
 // (O campo 'Produto' (url) NÃO entra aqui: é a entrada que você preenche.)
+// 'Preço Alvo' e 'Pausado' também são entrada sua, mas são criados aqui
+// por conveniência — você só marca/preenche quando quiser usar.
 const SCHEMA_MONITOR = {
   'Custo Atual':      { number: { format: 'real' } },
   'Custo Referência': { number: { format: 'real' } },
@@ -89,6 +100,9 @@ const SCHEMA_MONITOR = {
   'Alteração de':     { number: { format: 'real' } },
   'Status':           { select: {} },
   'Data':             { date: {} },
+  'Preço Alvo':       { number: { format: 'real' } },
+  'Pausado':          { checkbox: {} },
+  'Alvo Atingido':    { checkbox: {} },
 };
 
 // Pega o nome de cada database E garante que TODOS os campos do monitor existam

@@ -18,13 +18,30 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22   # >=22.9: necessário pro --env-file-if-exists do npm start
+          cache: npm
 
       - name: Instalar dependências
-        run: npm install
+        run: npm ci
+
+      # Guarda o download do Chromium (~150 MB) entre runs — economiza 1-2 min
+      # de minutos do Actions por execução. A chave muda quando a versão do
+      # Playwright muda (via package-lock.json), forçando um download novo.
+      - name: Cache do Chromium (Playwright)
+        id: playwright-cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
 
       - name: Instalar Chromium (Playwright)
+        if: steps.playwright-cache.outputs.cache-hit != 'true'
         run: npx playwright install --with-deps chromium
+
+      # Com cache, o navegador já existe — só as libs de sistema precisam ser instaladas
+      - name: Instalar dependências de sistema do Chromium
+        if: steps.playwright-cache.outputs.cache-hit == 'true'
+        run: npx playwright install-deps chromium
 
       - name: Rodar monitor
         env:

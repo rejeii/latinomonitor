@@ -4,6 +4,11 @@
 //  O preço é lido JÁ EM R$ do DOM — não usa cotação.
 // ============================================================
 
+// Lidos direto do env (não via config.js): este módulo também roda no
+// test-produto.js, sem NOTION_TOKEN — e o config.js exige o token ao carregar.
+const READY_TIMEOUT_MS  = Number(process.env.READY_TIMEOUT_MS  || 20000); // espera o seletor de "página pronta"
+const PRICE_DEADLINE_MS = Number(process.env.PRICE_DEADLINE_MS || 22000); // polling do preço (Cloudflare se auto-resolve)
+
 export function detectarFornecedor(url) {
   if (!url) return null;
   if (url.includes('visaovip.com'))           return 'visaovip';
@@ -74,7 +79,7 @@ export async function scrapeProduto(page, produto) {
   const readySel = READY_SEL[fornecedor];
   if (readySel) {
     try {
-      await page.waitForSelector(readySel, { timeout: 20000 });
+      await page.waitForSelector(readySel, { timeout: READY_TIMEOUT_MS });
     } catch {
       // segue mesmo assim — pode ser esgotado sem título OU desafio Cloudflare
     }
@@ -83,7 +88,7 @@ export async function scrapeProduto(page, produto) {
   // Polling até o preço aparecer. NÃO desiste no "bloqueado": o desafio da
   // Cloudflare ("Just a moment") se auto-resolve em alguns segundos num
   // navegador real — damos tempo (deadline maior) para ele limpar.
-  const deadline = Date.now() + 22000;
+  const deadline = Date.now() + PRICE_DEADLINE_MS;
   let result;
   do {
     result = await page.evaluate(scrapeInPage, fornecedor);

@@ -5,11 +5,11 @@
   "type": "module",
   "private": true,
   "scripts": {
-    "start": "node src/index.js",
+    "start": "node --env-file-if-exists=.env src/index.js",
     "test:produto": "node src/test-produto.js"
   },
   "engines": {
-    "node": ">=20"
+    "node": ">=22.9"
   },
   "dependencies": {
     "playwright": "^1.48.0",
