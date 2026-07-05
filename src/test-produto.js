@@ -3,11 +3,8 @@
 //  Uso: node src/test-produto.js "https://www.visaovip.com/prod/..."
 // ============================================================
 
-import { chromium } from 'playwright-extra';
-import StealthPlugin from 'puppeteer-extra-plugin-stealth';
+import { criarNavegador } from './browser.js';
 import { scrapeProduto, detectarFornecedor } from './scrapers.js';
-
-chromium.use(StealthPlugin());
 
 const url = process.argv[2];
 if (!url) {
@@ -21,10 +18,7 @@ if (!fornecedor) {
   process.exit(1);
 }
 
-const UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36';
-
-const browser = await chromium.launch({ headless: true, args: ['--no-sandbox'] });
-const context = await browser.newContext({ userAgent: UA, locale: 'pt-BR', viewport: { width: 1366, height: 768 } });
+const { browser, context } = await criarNavegador();
 const page = await context.newPage();
 
 const res = await scrapeProduto(page, { url, fornecedor });

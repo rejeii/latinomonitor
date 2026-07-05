@@ -28,7 +28,7 @@ export function calcPriceChange(newPrice, custoRef) {
   // Primeira vez que vemos o produto: define baseline, não alerta
   if (isNew) {
     return {
-      triggered: false, delta: 0, absDelta: 0,
+      triggered: false, delta: 0,
       props: {
         'Custo Referência': { number: newPrice },
         'Alteração':        { select: { name: 'Estável' } },
@@ -52,5 +52,5 @@ export function calcPriceChange(newPrice, custoRef) {
     props['Alteração de']     = { number: 0 };
   }
 
-  return { triggered, delta, absDelta, props };
+  return { triggered, delta, props };
 }

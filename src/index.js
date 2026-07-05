@@ -9,8 +9,7 @@
 // ============================================================
 
 import { mkdir } from 'node:fs/promises';
-import { chromium } from 'playwright-extra';
-import StealthPlugin from 'puppeteer-extra-plugin-stealth';
+import { criarNavegador } from './browser.js';
 import { buscarProdutos, atualizarProduto, prepararDatabases, prepararErrorDb, registrarErro } from './notion.js';
 import { scrapeProduto, resultadoRuim } from './scrapers.js';
 import { calcPriceChange, calcAlvo } from './priceChange.js';
@@ -18,10 +17,6 @@ import { diaSP, parseHist, serializeHist } from './history.js';
 import { enviarLotePrecos, enviarLoteAlvos, enviarLoteEsgotados, enviarLoteVoltou, enviarResumo, enviarErro, enviarInicio, enviarAvisoCampos, enviarCanario, enviarAvisoUso, enviarRelatorioErros, NOMES } from './discord.js';
 import { DELAY_MS, NAV_TIMEOUT_MS, SCRAPE_CONCURRENCY, PRICE_THRESHOLD, PRICE_THRESHOLD_HIGH, PRICE_HIGH_LEVEL, CANARY_RATIO, CANARY_MIN, ACTIONS_ALERT_PCT, NOTION_ERROR_DB_ID } from './config.js';
 import { checarUsoActions } from './usage.js';
-
-chromium.use(StealthPlugin());
-
-const UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36';
 
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 const log   = (...a) => console.log(new Date().toISOString(), ...a);
@@ -67,16 +62,7 @@ async function main() {
   // Avisa no Discord que o monitoramento começou (antes de raspar)
   await enviarInicio(`Verificando **${produtos.length}** produtos em ${Object.keys(nomesDb).length} database(s): ${Object.values(nomesDb).join(', ')}.`);
 
-  const browser = await chromium.launch({
-    headless: true,
-    args: ['--no-sandbox', '--disable-blink-features=AutomationControlled'],
-  });
-  const context = await browser.newContext({
-    userAgent: UA,
-    locale:    'pt-BR',
-    viewport:  { width: 1366, height: 768 },
-  });
-  context.setDefaultNavigationTimeout(NAV_TIMEOUT_MS);
+  const { browser, context } = await criarNavegador({ navTimeoutMs: NAV_TIMEOUT_MS });
 
   // ── FASE 1: raspa tudo (sem escrever) ──
   // Agrupa por URL: linhas duplicadas no Notion reaproveitam o mesmo scrape.

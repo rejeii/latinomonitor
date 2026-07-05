@@ -64,6 +64,8 @@ function embedPreco(item) {
   const fields = [
     { name: 'Fornecedor',     value: NOMES[produto.fornecedor] || produto.fornecedor,            inline: true },
     { name: 'Database',       value: dbNome || '—',                                              inline: true },
+    // Campo com espaço invisível (zero-width space): completa a 1ª linha de
+    // 3 colunas pro Discord alinhar "Preço anterior/atual/Diferença" embaixo
     { name: '​',         value: '​',                                                   inline: true },
     { name: 'Preço anterior', value: brl(produto.custoRef ?? produto.custoAtual),                inline: true },
     { name: 'Preço atual',    value: brl(preco),                                                 inline: true },
@@ -136,7 +138,7 @@ function embedVoltou(produto, precoNovo, dbNome) {
   };
 }
 
-// items: [{ produto, preco, delta, pct, dbNome, menor, novoMenor }]
+// items: [{ produto, preco, delta, dbNome, menor, novoMenor, novoMenor30, histValores }]
 export async function enviarLotePrecos(items) {
   if (!items.length) return;
   await postEmbeds(DISCORD_WEBHOOK_PRECOS, items.map(embedPreco));
