@@ -100,6 +100,20 @@ npm start
 
 ---
 
+## Performance e extras
+
+- **Scrape em paralelo:** os fornecedores rodam ao mesmo tempo, e cada um usa até
+  `SCRAPE_CONCURRENCY` abas (padrão 3). Com ~230 produtos o run cai de ~12min para ~4-5min.
+  Se algum fornecedor começar a bloquear pelo ritmo, reduza com a variável `SCRAPE_CONCURRENCY=1`.
+- **Sparkline no alerta:** alertas de preço trazem um gráfico dos últimos 30 dias
+  (gerado via QuickChart a partir do `Histórico 30d`).
+- **Digest semanal:** `npm run digest` (workflow `digest.yml`, domingo 09:00 BRT) envia no
+  Discord as 5 maiores quedas e subidas da semana + total de esgotados — sem scraping,
+  só lendo o Notion. *Atenção: o `schedule:` nativo desativa após 60 dias sem commits;
+  se parar, dispare via cron-job.org como o monitor.*
+
+---
+
 ## Resiliência do scrape
 
 - **Dedupe:** linhas do Notion com a mesma URL são raspadas **uma vez só** — o resultado

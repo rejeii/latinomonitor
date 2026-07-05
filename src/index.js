@@ -14,8 +14,9 @@ import StealthPlugin from 'puppeteer-extra-plugin-stealth';
 import { buscarProdutos, atualizarProduto, prepararDatabases, prepararErrorDb, registrarErro } from './notion.js';
 import { scrapeProduto, resultadoRuim } from './scrapers.js';
 import { calcPriceChange, calcAlvo } from './priceChange.js';
+import { diaSP, parseHist, serializeHist } from './history.js';
 import { enviarLotePrecos, enviarLoteAlvos, enviarLoteEsgotados, enviarLoteVoltou, enviarResumo, enviarErro, enviarInicio, enviarAvisoCampos, enviarCanario, enviarAvisoUso, enviarRelatorioErros, NOMES } from './discord.js';
-import { DELAY_MS, NAV_TIMEOUT_MS, PRICE_THRESHOLD, PRICE_THRESHOLD_HIGH, PRICE_HIGH_LEVEL, CANARY_RATIO, CANARY_MIN, ACTIONS_ALERT_PCT, NOTION_ERROR_DB_ID } from './config.js';
+import { DELAY_MS, NAV_TIMEOUT_MS, SCRAPE_CONCURRENCY, PRICE_THRESHOLD, PRICE_THRESHOLD_HIGH, PRICE_HIGH_LEVEL, CANARY_RATIO, CANARY_MIN, ACTIONS_ALERT_PCT, NOTION_ERROR_DB_ID } from './config.js';
 import { checarUsoActions } from './usage.js';
 
 chromium.use(StealthPlugin());
@@ -26,13 +27,6 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
 const log   = (...a) => console.log(new Date().toISOString(), ...a);
 const tag   = p => `[${NOMES[p.fornecedor] || p.fornecedor}]`;
 
-// Histórico de preço diário (compacto) para o menor preço dos últimos 30 dias.
-const diaSP = (offset = 0) => {
-  const d = new Date(); d.setDate(d.getDate() - offset);
-  return d.toLocaleDateString('en-CA', { timeZone: 'America/Sao_Paulo' }).replace(/-/g, ''); // YYYYMMDD
-};
-const parseHist     = s => { const m = {}; (s || '').split(',').forEach(e => { const [d, p] = e.split(':'); if (d && p) m[d] = parseFloat(p); }); return m; };
-const serializeHist = m => Object.entries(m).map(([d, p]) => `${d}:${p}`).join(',');
 
 async function main() {
   log('=== LatinoGG Monitor (Playwright) iniciado ===');
@@ -83,7 +77,6 @@ async function main() {
     viewport:  { width: 1366, height: 768 },
   });
   context.setDefaultNavigationTimeout(NAV_TIMEOUT_MS);
-  const page = await context.newPage();
 
   // ── FASE 1: raspa tudo (sem escrever) ──
   // Agrupa por URL: linhas duplicadas no Notion reaproveitam o mesmo scrape.
@@ -96,50 +89,82 @@ async function main() {
     log(`URLs únicas: ${porUrl.size} (${produtos.length - porUrl.size} linha(s) duplicada(s) reaproveitam o scrape)`);
   }
 
-  const scrapeUrl = async (produto) => {
-    try {
-      return await scrapeProduto(page, produto);   // { price, status, blocked }
-    } catch (e) {
-      return { erro: e.message };
-    }
-  };
+  // Fila por fornecedor: fornecedores rodam em PARALELO entre si, e cada
+  // fornecedor abre até SCRAPE_CONCURRENCY abas consumindo a própria fila
+  // (o DELAY_MS vale por aba — a taxa por site cresce com o nº de abas).
+  const filas = new Map();   // fornecedor -> [{ url, grupo }]
+  for (const [url, grupo] of porUrl) {
+    const f = grupo[0].fornecedor;
+    if (!filas.has(f)) filas.set(f, []);
+    filas.get(f).push({ url, grupo });
+  }
 
   const resultadoUrl = new Map();   // url -> resultado
-  for (const [url, grupo] of porUrl) {
-    resultadoUrl.set(url, await scrapeUrl(grupo[0]));
-    await sleep(DELAY_MS);
-  }
-
-  // ── RETRY: segunda tentativa só para quem falhou (erro/bloqueio/sem preço).
-  // Bloqueios da Cloudflare costumam se resolver na segunda visita. Quem
-  // continuar falhando ganha um screenshot em debug/ (vira artifact do run).
   let retryFalhas = 0, retryRecuperados = 0, debugShots = 0;
-  const falhas = [...resultadoUrl.entries()].filter(([, r]) => resultadoRuim(r));
-  if (falhas.length) {
-    retryFalhas = falhas.length;
-    log(`[RETRY] ${falhas.length} URL(s) falharam na 1ª tentativa — tentando de novo`);
-    for (const [url] of falhas) {
-      const produto = porUrl.get(url)[0];
-      await sleep(DELAY_MS);
-      const novo = await scrapeUrl(produto);
-      if (!resultadoRuim(novo)) {
-        log('[RETRY OK]', tag(produto), produto.nome);
-        resultadoUrl.set(url, novo);
-        retryRecuperados++;
-      } else {
-        // A page ainda está na URL que falhou — fotografa pra diagnóstico
-        try {
-          await mkdir('debug', { recursive: true });
-          const arq = `debug/${String(++debugShots).padStart(2, '0')}-${produto.fornecedor}-${produto.nome.replace(/[^a-z0-9]+/gi, '_').slice(0, 60)}.png`;
-          await page.screenshot({ path: arq });
-          log('[RETRY FALHOU]', tag(produto), produto.nome, `— screenshot: ${arq}`);
-        } catch (e) {
-          log('[RETRY FALHOU]', tag(produto), produto.nome, `— screenshot falhou: ${e.message}`);
+
+  const rasparFila = async (fornecedor, fila) => {
+    const raspar = (page) => async (produto) => {
+      try {
+        return await scrapeProduto(page, produto);   // { price, status, blocked }
+      } catch (e) {
+        return { erro: e.message };
+      }
+    };
+
+    // Abas do fornecedor consumindo a mesma fila até esvaziar
+    const pendentes = [...fila];
+    const abrirAba = async () => {
+      const page   = await context.newPage();
+      const scrape = raspar(page);
+      let item;
+      while ((item = pendentes.shift())) {
+        resultadoUrl.set(item.url, await scrape(item.grupo[0]));
+        await sleep(DELAY_MS);
+      }
+      return page;
+    };
+    const nAbas = Math.min(SCRAPE_CONCURRENCY, fila.length);
+    const pages = await Promise.all(Array.from({ length: nAbas }, abrirAba));
+
+    // ── RETRY: segunda tentativa só para quem falhou (erro/bloqueio/sem preço).
+    // Bloqueios da Cloudflare costumam se resolver na segunda visita. Quem
+    // continuar falhando ganha um screenshot em debug/ (vira artifact do run).
+    const page   = pages[0];
+    const scrape = raspar(page);
+    const falhas = fila.filter(({ url }) => resultadoRuim(resultadoUrl.get(url)));
+    if (falhas.length) {
+      retryFalhas += falhas.length;
+      let recuperadas = 0;
+      log(`[RETRY] ${NOMES[fornecedor] || fornecedor}: ${falhas.length} URL(s) falharam na 1ª tentativa — tentando de novo`);
+      for (const { url, grupo } of falhas) {
+        const produto = grupo[0];
+        await sleep(DELAY_MS);
+        const novo = await scrape(produto);
+        if (!resultadoRuim(novo)) {
+          log('[RETRY OK]', tag(produto), produto.nome);
+          resultadoUrl.set(url, novo);
+          recuperadas++;
+        } else {
+          // A page ainda está na URL que falhou — fotografa pra diagnóstico
+          try {
+            await mkdir('debug', { recursive: true });
+            const arq = `debug/${String(++debugShots).padStart(2, '0')}-${produto.fornecedor}-${produto.nome.replace(/[^a-z0-9]+/gi, '_').slice(0, 60)}.png`;
+            await page.screenshot({ path: arq });
+            log('[RETRY FALHOU]', tag(produto), produto.nome, `— screenshot: ${arq}`);
+          } catch (e) {
+            log('[RETRY FALHOU]', tag(produto), produto.nome, `— screenshot falhou: ${e.message}`);
+          }
         }
       }
+      retryRecuperados += recuperadas;
+      log(`[RETRY] ${NOMES[fornecedor] || fornecedor}: recuperadas ${recuperadas}/${falhas.length}`);
     }
-    log(`[RETRY] recuperados: ${retryRecuperados}/${retryFalhas}`);
-  }
+
+    for (const p of pages) await p.close();
+  };
+
+  log(`Scrape em paralelo: ${filas.size} fornecedor(es), até ${SCRAPE_CONCURRENCY} aba(s) cada`);
+  await Promise.all([...filas].map(([f, fila]) => rasparFila(f, fila)));
 
   // Espalha o resultado de cada URL para todas as linhas que a usam
   const resultados = [];
@@ -284,7 +309,8 @@ async function main() {
         const seta = change.delta > 0 ? '▲' : '▼';
         log('[ALERTA ' + seta + ']', tag(produto), produto.nome,
             `— R$${price.toFixed(2)} (ref R$${(produto.custoRef ?? 0).toFixed(2)}, Δ R$${change.delta.toFixed(2)})`);
-        precoAlerts.push({ produto, preco: price, delta: change.delta, dbNome: labelDb(produto.dbId), menor, novoMenor, novoMenor30 });
+        const histValores = Object.keys(hist).sort().map(d => hist[d]);   // série p/ o sparkline
+        precoAlerts.push({ produto, preco: price, delta: change.delta, dbNome: labelDb(produto.dbId), menor, novoMenor, novoMenor30, histValores });
         precoAlt++; conta(produto, 'preco');
       } else {
         log('[ok]', tag(produto), produto.nome, `— R$${price.toFixed(2)}`);

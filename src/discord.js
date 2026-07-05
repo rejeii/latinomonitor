@@ -47,6 +47,17 @@ async function postEmbeds(webhook, embeds) {
   }
 }
 
+// Gráfico compacto do histórico 30d via QuickChart (vira imagem do embed).
+// Exportada só para os testes.
+export function sparklineUrl(valores) {
+  if (!Array.isArray(valores) || valores.length < 2) return null;
+  const cfg = {
+    type: 'sparkline',
+    data: { datasets: [{ data: valores.map(v => Math.round(v * 100) / 100), borderColor: '#5865F2', fill: false }] },
+  };
+  return 'https://quickchart.io/chart?w=380&h=80&c=' + encodeURIComponent(JSON.stringify(cfg));
+}
+
 function embedPreco(item) {
   const { produto, preco, delta, dbNome, menor, novoMenor, novoMenor30 } = item;
   const subiu = delta > 0;
@@ -63,7 +74,7 @@ function embedPreco(item) {
   }
   // Sinal de compra: queda que também é o menor preço dos últimos 30 dias
   const badge30 = (!subiu && novoMenor30) ? '\n🟢 **Menor preço dos últimos 30 dias!**' : '';
-  return {
+  const embed = {
     title:       (subiu ? '🔼  Preço subiu' : '🔽  Preço caiu'),
     // subiu = verde, desceu = vermelho (convenção pedida)
     color:       subiu ? 3066993 : 15158332,
@@ -72,6 +83,10 @@ function embedPreco(item) {
     fields,
     footer: { text: 'LatinoGG Monitor · ' + agora() },
   };
+  // Gráfico dos últimos 30 dias (se houver histórico suficiente)
+  const spark = sparklineUrl(item.histValores);
+  if (spark) embed.image = { url: spark };
+  return embed;
 }
 
 function embedAlvo(item) {
@@ -226,6 +241,16 @@ export async function enviarAvisoUso(uso) {
     footer:      { text: 'LatinoGG Monitor · ' + agora() },
   };
   await postEmbeds(DISCORD_WEBHOOK_INICIO || DISCORD_WEBHOOK_PRECOS, [embed]).catch(() => {});
+}
+
+export async function enviarDigestSemanal(texto) {
+  const embed = {
+    title:       '🗓️  Digest semanal de preços',
+    color:       10181046, // roxo
+    description: texto,
+    footer:      { text: 'LatinoGG Monitor · ' + agora() },
+  };
+  await postEmbeds(DISCORD_WEBHOOK_INICIO || DISCORD_WEBHOOK_PRECOS, [embed]);
 }
 
 export async function enviarErro(mensagem) {

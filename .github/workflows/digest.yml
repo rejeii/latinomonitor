@@ -1,0 +1,32 @@
+# Digest semanal de preços no Discord (não faz scraping — lê o Notion).
+# ATENÇÃO: o schedule nativo do GitHub desativa após 60 dias sem commits.
+# Se isso acontecer, dispare via workflow_dispatch (cron-job.org, como o monitor).
+name: Digest semanal
+
+on:
+  schedule:
+    - cron: '0 12 * * 0'   # domingo 12:00 UTC = 09:00 BRT
+  workflow_dispatch: {}
+
+jobs:
+  digest:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Instalar dependências
+        run: npm ci
+
+      - name: Enviar digest
+        env:
+          NOTION_TOKEN:              ${{ secrets.NOTION_TOKEN }}
+          NOTION_DATABASE_IDS:       ${{ secrets.NOTION_DATABASE_IDS }}
+          DISCORD_WEBHOOK_PRECOS:    ${{ secrets.DISCORD_WEBHOOK_PRECOS }}
+          DISCORD_WEBHOOK_INICIO:    ${{ secrets.DISCORD_WEBHOOK_INICIO }}
+        run: npm run digest

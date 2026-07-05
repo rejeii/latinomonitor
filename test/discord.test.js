@@ -9,7 +9,7 @@ process.env.NOTION_TOKEN           ||= 'test-token';
 process.env.NOTION_DATABASE_IDS    ||= 'db-teste';
 process.env.DISCORD_WEBHOOK_PRECOS ||= 'https://example.com/webhook';
 
-const { enviarLotePrecos, enviarLoteAlvos, NOMES } = await import('../src/discord.js');
+const { enviarLotePrecos, enviarLoteAlvos, sparklineUrl, NOMES } = await import('../src/discord.js');
 
 // Captura os POSTs que o módulo faria
 const capturar = () => {
@@ -83,6 +83,31 @@ test('enviarLoteAlvos: embed 🎯 com alvo e preço atual', async () => {
   const campo = n => embed.fields.find(f => f.name === n)?.value;
   assert.strictEqual(campo('Preço alvo'),  'R$ 150,00');
   assert.strictEqual(campo('Preço atual'), 'R$ 149,90');
+});
+
+test('sparklineUrl: precisa de pelo menos 2 pontos', () => {
+  assert.strictEqual(sparklineUrl(null), null);
+  assert.strictEqual(sparklineUrl([]), null);
+  assert.strictEqual(sparklineUrl([100]), null);
+});
+
+test('sparklineUrl: monta URL do QuickChart com os valores arredondados', () => {
+  const url = sparklineUrl([100.555, 95, 105.111]);
+  assert.match(url, /^https:\/\/quickchart\.io\/chart\?w=380&h=80&c=/);
+  const cfg = JSON.parse(decodeURIComponent(url.split('&c=')[1]));
+  assert.strictEqual(cfg.type, 'sparkline');
+  assert.deepStrictEqual(cfg.data.datasets[0].data, [100.56, 95, 105.11]);
+});
+
+test('embedPreco: alerta com histórico ganha imagem de sparkline; sem histórico, não', async () => {
+  const posts = capturar();
+  await enviarLotePrecos([
+    { produto: produtoBase, preco: 80, delta: -20, dbNome: 'X', menor: null, novoMenor: false, novoMenor30: false, histValores: [100, 90, 80] },
+    { produto: produtoBase, preco: 80, delta: -20, dbNome: 'X', menor: null, novoMenor: false, novoMenor30: false },
+  ]);
+  const [comHist, semHist] = posts[0].body.embeds;
+  assert.match(comHist.image?.url ?? '', /quickchart\.io/);
+  assert.strictEqual(semHist.image, undefined);
 });
 
 test('postEmbeds: um 429 do Discord é aguardado e reenviado', async () => {

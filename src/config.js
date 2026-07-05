@@ -36,6 +36,11 @@ export const NAV_TIMEOUT_MS = Number(process.env.NAV_TIMEOUT_MS || 30000);
 // Delay entre produtos (ms) — não martelar os fornecedores
 export const DELAY_MS = Number(process.env.DELAY_MS || 800);
 
+// Abas simultâneas POR fornecedor na fase de scrape. Fornecedores já rodam
+// em paralelo entre si; este número multiplica a taxa de requisições que
+// CADA site recebe (o DELAY_MS vale por aba). 1 = sequencial por fornecedor.
+export const SCRAPE_CONCURRENCY = Number(process.env.SCRAPE_CONCURRENCY || 3);
+
 // Canário (detector de scraper quebrado): se um fornecedor com pelo menos
 // CANARY_MIN produtos vier com CANARY_RATIO (fração) sem preço, é tratado como
 // scraper quebrado → suprime escritas e alertas dele.
