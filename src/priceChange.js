@@ -10,6 +10,16 @@
 
 import { PRICE_THRESHOLD, PRICE_THRESHOLD_HIGH, PRICE_HIGH_LEVEL } from './config.js';
 
+// ── Preço alvo (campo "Preço Alvo" no Notion) ──
+// Alerta quando o preço cruza para <= alvo. O flag "Alvo Atingido" (escrito
+// pelo monitor) evita repetir o alerta a cada run enquanto seguir abaixo do
+// alvo; quando o preço sobe acima do alvo, o flag é limpo e o alerta rearma.
+export function calcAlvo(price, precoAlvo, jaAtingido) {
+  if (precoAlvo == null || !(price > 0)) return { atingido: false, alertar: false };
+  const atingido = price <= precoAlvo;
+  return { atingido, alertar: atingido && !jaAtingido };
+}
+
 export function calcPriceChange(newPrice, custoRef) {
   if (!newPrice || newPrice <= 0) return null;
 

@@ -74,6 +74,23 @@ function embedPreco(item) {
   };
 }
 
+function embedAlvo(item) {
+  const { produto, preco, dbNome } = item;
+  return {
+    title:       '🎯  Preço alvo atingido',
+    color:       15844367, // dourado
+    url:         produto.url,
+    description: `**${produto.nome}**`,
+    fields: [
+      { name: 'Fornecedor',  value: NOMES[produto.fornecedor] || produto.fornecedor, inline: true },
+      { name: 'Database',    value: dbNome || '—',                                   inline: true },
+      { name: 'Preço alvo',  value: brl(produto.precoAlvo),                          inline: true },
+      { name: 'Preço atual', value: brl(preco),                                      inline: true },
+    ],
+    footer: { text: 'LatinoGG Monitor · ' + agora() },
+  };
+}
+
 function embedEsgotado(produto, dbNome) {
   return {
     title:       '🚫  Produto esgotado no fornecedor',
@@ -108,6 +125,12 @@ function embedVoltou(produto, precoNovo, dbNome) {
 export async function enviarLotePrecos(items) {
   if (!items.length) return;
   await postEmbeds(DISCORD_WEBHOOK_PRECOS, items.map(embedPreco));
+}
+
+// items: [{ produto, preco, dbNome }]
+export async function enviarLoteAlvos(items) {
+  if (!items.length) return;
+  await postEmbeds(DISCORD_WEBHOOK_PRECOS, items.map(embedAlvo));
 }
 
 // items: [{ produto, dbNome }]

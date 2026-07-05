@@ -12,8 +12,8 @@ import { chromium } from 'playwright-extra';
 import StealthPlugin from 'puppeteer-extra-plugin-stealth';
 import { buscarProdutos, atualizarProduto, prepararDatabases, prepararErrorDb, registrarErro } from './notion.js';
 import { scrapeProduto } from './scrapers.js';
-import { calcPriceChange } from './priceChange.js';
-import { enviarLotePrecos, enviarLoteEsgotados, enviarLoteVoltou, enviarResumo, enviarErro, enviarInicio, enviarAvisoCampos, enviarCanario, enviarAvisoUso, enviarRelatorioErros, NOMES } from './discord.js';
+import { calcPriceChange, calcAlvo } from './priceChange.js';
+import { enviarLotePrecos, enviarLoteAlvos, enviarLoteEsgotados, enviarLoteVoltou, enviarResumo, enviarErro, enviarInicio, enviarAvisoCampos, enviarCanario, enviarAvisoUso, enviarRelatorioErros, NOMES } from './discord.js';
 import { DELAY_MS, NAV_TIMEOUT_MS, PRICE_THRESHOLD, PRICE_THRESHOLD_HIGH, PRICE_HIGH_LEVEL, CANARY_RATIO, CANARY_MIN, ACTIONS_ALERT_PCT, NOTION_ERROR_DB_ID } from './config.js';
 import { checarUsoActions } from './usage.js';
 
@@ -36,8 +36,10 @@ const serializeHist = m => Object.entries(m).map(([d, p]) => `${d}:${p}`).join('
 async function main() {
   log('=== LatinoGG Monitor (Playwright) iniciado ===');
 
-  const produtos = await buscarProdutos();
-  log(`Produtos para monitorar: ${produtos.length}`);
+  const todos    = await buscarProdutos();
+  const pausados = todos.filter(p => p.pausado);
+  const produtos = todos.filter(p => !p.pausado);
+  log(`Produtos para monitorar: ${produtos.length}` + (pausados.length ? ` (⏸️ ${pausados.length} pausados)` : ''));
   if (!produtos.length) return;
 
   const { nomes: nomesDb, criados } = await prepararDatabases();
@@ -124,6 +126,7 @@ async function main() {
 
   // Acumuladores — Discord só é chamado DEPOIS do processamento (em lote)
   const precoAlerts    = [];
+  const alvoAlerts     = [];
   const esgotadoAlerts = [];
   const restockAlerts  = [];
 
@@ -134,7 +137,7 @@ async function main() {
   const bumpDb  = (dbId, key) => { (statsDb[dbId] ??= novo())[key]++; };
   const conta   = (p, key)    => { bump(p.fornecedor, key); bumpDb(p.dbId, key); };
 
-  let est = 0, precoAlt = 0, esgotadoTot = 0, esgotadoNovo = 0, voltouCount = 0, erros = 0, bloqueados = 0, suprimidos = 0;
+  let est = 0, precoAlt = 0, alvoCount = 0, esgotadoTot = 0, esgotadoNovo = 0, voltouCount = 0, erros = 0, bloqueados = 0, suprimidos = 0;
 
   // ── FASE 2: processa (escreve + alerta), pulando fornecedores suspeitos ──
   for (const r of resultados) {
@@ -190,6 +193,7 @@ async function main() {
       // ── Em estoque: escreve, depois decide alerta ──
       const voltou = produto.status === 'Esgotado';
       const change = calcPriceChange(price, produto.custoRef);
+      const alvo   = calcAlvo(price, produto.precoAlvo, produto.alvoAtingido);
 
       // Menor preço histórico (todo o período)
       const menor     = (produto.menorPreco == null || price < produto.menorPreco) ? price : produto.menorPreco;
@@ -210,6 +214,7 @@ async function main() {
         'Histórico 30d': { rich_text: [{ text: { content: serializeHist(hist) } }] },
         'Data':          { date: { start: new Date().toISOString() } },
         'Status':        { select: { name: status } },
+        'Alvo Atingido': { checkbox: alvo.atingido },  // false rearma o alerta de alvo
       };
       if (change) Object.assign(props, change.props);
       if (voltou) {
@@ -234,6 +239,14 @@ async function main() {
         est++; conta(produto, 'ok');
       }
 
+      // Alvo é independente do alerta de variação (os dois podem disparar juntos)
+      if (alvo.alertar) {
+        log('[ALVO 🎯]', tag(produto), produto.nome,
+            `— R$${price.toFixed(2)} ≤ alvo R$${produto.precoAlvo.toFixed(2)}`);
+        alvoAlerts.push({ produto, preco: price, dbNome: labelDb(produto.dbId) });
+        alvoCount++;
+      }
+
       await sleep(150);
 
     } catch (e) {
@@ -246,6 +259,7 @@ async function main() {
   // ── Envia os alertas em LOTE (até 10 por mensagem) ──
   try {
     await enviarLotePrecos(precoAlerts);
+    await enviarLoteAlvos(alvoAlerts);
     await enviarLoteEsgotados(esgotadoAlerts);
     await enviarLoteVoltou(restockAlerts);
     await enviarCanario(canarios);
@@ -284,10 +298,12 @@ async function main() {
     `Total verificado: ${produtos.length}\n` +
     `✅ Estáveis: ${est}\n` +
     `📈 Preço alterado: ${precoAlt}\n` +
+    `🎯 Alvo atingido: ${alvoCount}\n` +
     `🚫 Esgotados: ${esgotadoTot} (${esgotadoNovo} novos${novosPorDb ? ' — ' + novosPorDb : ''})\n` +
     `🔄 Voltaram ao estoque: ${voltouCount}\n` +
     `⛔ Bloqueados: ${bloqueados}\n` +
     `❌ Erros: ${erros}` +
+    (pausados.length ? `\n⏸️ Pausados: ${pausados.length}` : '') +
     (duplicados.length ? `\n⚠️ Duplicados (mesma URL): ${duplicados.length}` : '') +
     linhaCanario +
     linhaUso;

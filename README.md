@@ -40,8 +40,16 @@ de um produto só define o baseline (não alerta).
 | `Alteração de`     | number        | tamanho da última variação               |
 | `Status`           | select        | Em estoque / Esgotado                    |
 | `Data`             | date          | timestamp da última verificação          |
+| `Preço Alvo`       | number        | **você preenche** — alerta 🎯 quando o preço fica ≤ alvo |
+| `Pausado`          | checkbox      | **você marca** — produto pausado não é monitorado (sem perder o histórico) |
+| `Alvo Atingido`    | checkbox      | controle interno do alerta de alvo (o monitor gerencia)  |
 
 > São os mesmos campos do userscript LatinoGo — os dois sistemas convivem sem brigar.
+> Campos que faltarem são criados automaticamente no primeiro run.
+
+**Preço alvo (anti-spam):** o alerta 🎯 dispara uma vez, quando o preço *cruza* para
+baixo do alvo (o monitor marca `Alvo Atingido`). Enquanto seguir abaixo, não repete.
+Se o preço subir acima do alvo, o flag é limpo e o alerta rearma sozinho.
 
 ---
 
