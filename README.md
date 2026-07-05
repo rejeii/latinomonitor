@@ -88,6 +88,9 @@ Body:   {"ref":"main"}
 npm install
 npx playwright install chromium
 
+# rodar os testes (não abrem navegador nem tocam Notion/Discord):
+npm test
+
 # testar UM produto (não precisa de Notion/Discord):
 node src/test-produto.js "https://www.visaovip.com/prod/..."
 
