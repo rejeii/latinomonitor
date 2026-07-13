@@ -26,8 +26,9 @@ const READY_SEL = {
 
 // ── Função executada DENTRO da página (contexto do navegador) ──
 // Precisa ser autocontida: nada de imports aqui dentro.
-// Retorna { price, status, blocked }.
-function scrapeInPage(fornecedor) {
+// Retorna { price, status, blocked, rateLimited, usdOnly }.
+// Exportada só para os testes (roda via page.evaluate em produção).
+export function scrapeInPage(fornecedor) {
   const extractPrice = (text) => {
     if (!text) return 0;
     const m = String(text).match(/R\$\s*([\d.,]+)/);
@@ -35,19 +36,33 @@ function scrapeInPage(fornecedor) {
     return parseFloat(m[1].replace(/\./g, '').replace(',', '.')) || 0;
   };
 
-  // Detecta página de desafio da Cloudflare (Collections pode cair aqui)
-  const sample = ((document.title || '') + ' ' +
-    ((document.body && document.body.innerText) || '').slice(0, 300));
-  const blocked = /just a moment|attention required|verifying you are human|cloudflare/i.test(sample);
+  const bodyText = (document.body && document.body.innerText) || '';
+  const sample = ((document.title || '') + ' ' + bodyText.slice(0, 300));
+
+  // Rate-limit do próprio fornecedor (Collections): página estática de
+  // "requisições fora do normal" — não se resolve sozinha, só revisitando.
+  const rateLimited = /requisições fora do normal/i.test(sample);
+
+  // Desafio da Cloudflare — inclui a variante em português ("Executando
+  // verificação de segurança") e a Turnstile ("Verify you are human"),
+  // que apareciam como "Sem preço" por escapar do padrão antigo.
+  const blocked = rateLimited ||
+    /just a moment|attention required|verify(ing)? you are human|verificação de segurança|cloudflare/i.test(sample);
 
   let price = 0;
   let status = 'Em estoque';
+  let usdOnly = false;
 
   if (fornecedor === 'visaovip') {
     const el = document.querySelector('.border-round-2xl .text-vip:not(.font-medium)');
     price = extractPrice(el?.innerText || '');
     const esgotadoEl = document.querySelector('.error-border');
     status = price > 0 ? 'Em estoque' : (esgotadoEl ? 'Esgotado' : 'Em estoque');
+    // Página renderizou mas só com o preço em U$ (a conversão pra R$ não
+    // carregou — instabilidade do site). Não convertemos por conta própria:
+    // a cotação exibida é arredondada e alimentaria o baseline com um valor
+    // que o site nunca mostrou. Fica como falha transitória com tipo próprio.
+    usdOnly = !(price > 0) && !blocked && /U\$\s*[\d.,]+/.test(bodyText);
 
   } else if (fornecedor === 'atacadoconnect') {
     // [class*="priceValue"] sobrevive à mudança do hash do CSS module
@@ -67,7 +82,7 @@ function scrapeInPage(fornecedor) {
     status = price > 0 ? 'Em estoque' : (indisponivel ? 'Esgotado' : 'Em estoque');
   }
 
-  return { price, status, blocked };
+  return { price, status, blocked, rateLimited, usdOnly };
 }
 
 // Resultado de scrape que merece retry: erro, bloqueio ou sem preço
@@ -94,11 +109,12 @@ export async function scrapeProduto(page, produto) {
   // Polling até o preço aparecer. NÃO desiste no "bloqueado": o desafio da
   // Cloudflare ("Just a moment") se auto-resolve em alguns segundos num
   // navegador real — damos tempo (deadline maior) para ele limpar.
+  // Exceção: rate-limit do fornecedor é página estática — esperar não ajuda.
   const deadline = Date.now() + PRICE_DEADLINE_MS;
   let result;
   do {
     result = await page.evaluate(scrapeInPage, fornecedor);
-    if (result.price > 0 || result.status === 'Esgotado') break;
+    if (result.price > 0 || result.status === 'Esgotado' || result.rateLimited) break;
     await page.waitForTimeout(700);
   } while (Date.now() < deadline);
 

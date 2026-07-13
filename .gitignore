@@ -2,3 +2,4 @@ node_modules/
 .env
 .last_run_id.txt
 debug/
+.claude/

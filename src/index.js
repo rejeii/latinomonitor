@@ -15,12 +15,17 @@ import { scrapeProduto, resultadoRuim } from './scrapers.js';
 import { calcPriceChange, calcAlvo } from './priceChange.js';
 import { diaSP, parseHist, serializeHist } from './history.js';
 import { enviarLotePrecos, enviarLoteAlvos, enviarLoteEsgotados, enviarLoteVoltou, enviarResumo, enviarErro, enviarInicio, enviarAvisoCampos, enviarCanario, enviarAvisoUso, enviarRelatorioErros, NOMES } from './discord.js';
-import { DELAY_MS, NAV_TIMEOUT_MS, SCRAPE_CONCURRENCY, PRICE_THRESHOLD, PRICE_THRESHOLD_HIGH, PRICE_HIGH_LEVEL, CANARY_RATIO, CANARY_MIN, ACTIONS_ALERT_PCT, NOTION_ERROR_DB_ID } from './config.js';
+import { DELAY_MS, NAV_TIMEOUT_MS, SCRAPE_CONCURRENCY, RETRY_COOLDOWN_MS, PRICE_THRESHOLD, PRICE_THRESHOLD_HIGH, PRICE_HIGH_LEVEL, CANARY_RATIO, CANARY_MIN, ACTIONS_ALERT_PCT, NOTION_ERROR_DB_ID } from './config.js';
 import { checarUsoActions } from './usage.js';
 
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 const log   = (...a) => console.log(new Date().toISOString(), ...a);
 const tag   = p => `[${NOMES[p.fornecedor] || p.fornecedor}]`;
+
+// Teto de abas por fornecedor (sobrepõe SCRAPE_CONCURRENCY). A Collections
+// corta o acesso com "requisições fora do normal" quando o ritmo sobe —
+// e são poucos produtos, então 1 aba custa segundos e evita o bloqueio.
+const MAX_ABAS_FORNECEDOR = { atacadocollections: 1 };
 
 
 async function main() {
@@ -109,19 +114,21 @@ async function main() {
       }
       return page;
     };
-    const nAbas = Math.min(SCRAPE_CONCURRENCY, fila.length);
+    const nAbas = Math.min(MAX_ABAS_FORNECEDOR[fornecedor] ?? SCRAPE_CONCURRENCY, fila.length);
     const pages = await Promise.all(Array.from({ length: nAbas }, abrirAba));
 
     // ── RETRY: segunda tentativa só para quem falhou (erro/bloqueio/sem preço).
-    // Bloqueios da Cloudflare costumam se resolver na segunda visita. Quem
-    // continuar falhando ganha um screenshot em debug/ (vira artifact do run).
+    // Espera RETRY_COOLDOWN_MS antes: rate-limit do fornecedor e desafio da
+    // Cloudflare precisam de tempo — revisitar na hora bate na mesma parede.
+    // Quem continuar falhando ganha um screenshot em debug/ (artifact do run).
     const page   = pages[0];
     const scrape = raspar(page);
     const falhas = fila.filter(({ url }) => resultadoRuim(resultadoUrl.get(url)));
     if (falhas.length) {
       retryFalhas += falhas.length;
       let recuperadas = 0;
-      log(`[RETRY] ${NOMES[fornecedor] || fornecedor}: ${falhas.length} URL(s) falharam na 1ª tentativa — tentando de novo`);
+      log(`[RETRY] ${NOMES[fornecedor] || fornecedor}: ${falhas.length} URL(s) falharam na 1ª tentativa — aguardando ${Math.round(RETRY_COOLDOWN_MS / 1000)}s antes de tentar de novo`);
+      await sleep(RETRY_COOLDOWN_MS);
       for (const { url, grupo } of falhas) {
         const produto = grupo[0];
         await sleep(DELAY_MS);
@@ -219,11 +226,14 @@ async function main() {
 
       const { price, status, blocked } = r;
 
-      // ── Bloqueado (Cloudflare não liberou) ──
+      // ── Bloqueado (Cloudflare não liberou / fornecedor limitou o ritmo) ──
       if (blocked) {
-        log('[BLOQUEADO]', tag(produto), produto.nome);
+        const motivo = r.rateLimited
+          ? 'Fornecedor limitou o ritmo (requisições fora do normal)'
+          : 'Cloudflare bloqueou a página';
+        log('[BLOQUEADO]', tag(produto), produto.nome, r.rateLimited ? '— rate-limit do site' : '— Cloudflare');
         bloqueados++; conta(produto, 'bloqueado');
-        pushErroProduto(produto, 'Bloqueado', 'Cloudflare bloqueou a página', r);
+        pushErroProduto(produto, 'Bloqueado', motivo, r);
         continue;
       }
 
@@ -245,11 +255,15 @@ async function main() {
         continue;
       }
 
-      // ── Sem preço (não deve cair aqui — price<=0 só com erro/esgotado) ──
+      // ── Sem preço (página quebrada, ou VisãoVip meio carregada só com U$) ──
       if (!price || price <= 0) {
-        log('[SEM PREÇO]', tag(produto), produto.nome);
+        const tipo = r.usdOnly ? 'Preço só em U$' : 'Sem preço';
+        const msg  = r.usdOnly
+          ? 'Página carregou só o preço em dólar (a conversão pra R$ não veio)'
+          : 'Não foi possível ler o preço';
+        log(r.usdOnly ? '[SÓ U$]' : '[SEM PREÇO]', tag(produto), produto.nome);
         erros++; conta(produto, 'erro');
-        pushErroProduto(produto, 'Sem preço', 'Não foi possível ler o preço', r);
+        pushErroProduto(produto, tipo, msg, r);
         continue;
       }
 

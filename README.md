@@ -118,8 +118,18 @@ npm start
 
 - **Dedupe:** linhas do Notion com a mesma URL são raspadas **uma vez só** — o resultado
   é reaproveitado em todas (o resumo continua apontando os duplicados pra limpeza).
-- **Retry:** quem falha na 1ª tentativa (erro, bloqueio da Cloudflare ou sem preço) ganha
-  uma **segunda visita** no fim da fase de scrape — bloqueios costumam se resolver na revisita.
+- **Retry com cooldown:** quem falha na 1ª tentativa (erro, bloqueio ou sem preço) ganha
+  uma **segunda visita** no fim da fase de scrape, após `RETRY_COOLDOWN_MS` (padrão 90s) —
+  tempo do rate-limit do fornecedor expirar e do desafio da Cloudflare limpar; revisitar
+  na hora tende a bater na mesma parede.
+- **Ritmo por fornecedor:** a AtacadoCollections corta o acesso ("requisições fora do
+  normal") quando o ritmo sobe — ela roda com **1 aba fixa**; os demais usam
+  `SCRAPE_CONCURRENCY`.
+- **Erros classificados:** desafio da Cloudflare (inclusive a variante em português e a
+  Turnstile) e rate-limit do fornecedor viram `Bloqueado` com o motivo; página da VisãoVip
+  meio carregada (só preço em U$, sem a conversão pra R$) vira `Preço só em U$` — o
+  monitor **não** converte por conta própria: a cotação exibida é arredondada e poluiria
+  o baseline com valores que o site nunca mostrou.
 - **Screenshot de debug:** quem falha 2x é fotografado; as imagens saem como **artifact
   `debug-screenshots`** do run no GitHub (guardadas por 7 dias) — diagnóstico de seletor
   quebrado em segundos, sem adivinhação.
