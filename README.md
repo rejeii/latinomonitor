@@ -130,7 +130,12 @@ npm start
   meio carregada (só preço em U$, sem a conversão pra R$) vira `Preço só em U$` — o
   monitor **não** converte por conta própria: a cotação exibida é arredondada e poluiria
   o baseline com valores que o site nunca mostrou.
-- **Screenshot de debug:** quem falha 2x é fotografado; as imagens saem como **artifact
+- **Site fora do ar não estoura o job:** a página 404 da SPA da VisãoVip é detectada em
+  ~1,5s (2 leituras seguidas) em vez de queimar os ~42s de espera+polling por URL — foi
+  isso que fez runs passarem de 60min quando o site caiu de vez. No retry, 8 falhas
+  seguidas indicam site caído → desiste das restantes (o canário já suprime as escritas).
+- **Screenshot de debug:** quem falha 2x é fotografado (até 3 por fornecedor — site caído
+  geraria centenas de fotos idênticas); as imagens saem como **artifact
   `debug-screenshots`** do run no GitHub (guardadas por 7 dias) — diagnóstico de seletor
   quebrado em segundos, sem adivinhação.
 

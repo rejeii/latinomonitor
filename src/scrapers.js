@@ -17,9 +17,12 @@ export function detectarFornecedor(url) {
   return null;
 }
 
-// Seletor que indica que a página do produto terminou de renderizar
+// Seletor que indica que a página do produto terminou de renderizar.
+// VisãoVip: o 2º seletor casa com a página de erro/404 da SPA ("NÃO
+// ENCONTRADO") — libera a espera na hora quando o site está fora do ar,
+// em vez de queimar READY_TIMEOUT_MS inteiro em cada URL morta.
 const READY_SEL = {
-  visaovip:           'h2.mt-1.text-2xl.font-bold',
+  visaovip:           'h2.mt-1.text-2xl.font-bold, h2.font-sora',
   atacadoconnect:     'h1.font-archivo.font-bold',
   atacadocollections: 'header.product-header h1',
 };
@@ -52,12 +55,16 @@ export function scrapeInPage(fornecedor) {
   let price = 0;
   let status = 'Em estoque';
   let usdOnly = false;
+  let notFound = false;
 
   if (fornecedor === 'visaovip') {
     const el = document.querySelector('.border-round-2xl .text-vip:not(.font-medium)');
     price = extractPrice(el?.innerText || '');
     const esgotadoEl = document.querySelector('.error-border');
     status = price > 0 ? 'Em estoque' : (esgotadoEl ? 'Esgotado' : 'Em estoque');
+    // Página 404 da SPA ("NÃO ENCONTRADO") — o site rende o shell mas o
+    // produto não carrega (instabilidade/queda). Some quando o site volta.
+    notFound = !(price > 0) && /não encontrado/i.test(sample);
     // Página renderizou mas só com o preço em U$ (a conversão pra R$ não
     // carregou — instabilidade do site). Não convertemos por conta própria:
     // a cotação exibida é arredondada e alimentaria o baseline com um valor
@@ -82,7 +89,7 @@ export function scrapeInPage(fornecedor) {
     status = price > 0 ? 'Em estoque' : (indisponivel ? 'Esgotado' : 'Em estoque');
   }
 
-  return { price, status, blocked, rateLimited, usdOnly };
+  return { price, status, blocked, rateLimited, usdOnly, notFound };
 }
 
 // Resultado de scrape que merece retry: erro, bloqueio ou sem preço
@@ -112,9 +119,15 @@ export async function scrapeProduto(page, produto) {
   // Exceção: rate-limit do fornecedor é página estática — esperar não ajuda.
   const deadline = Date.now() + PRICE_DEADLINE_MS;
   let result;
+  let vezes404 = 0;
   do {
     result = await page.evaluate(scrapeInPage, fornecedor);
     if (result.price > 0 || result.status === 'Esgotado' || result.rateLimited) break;
+    // 404 da SPA: 2 leituras seguidas confirmam (1 só pode ser estado
+    // transitório do router antes do produto renderizar). Com o site fora
+    // do ar, cada URL custa ~1,5s em vez do deadline inteiro.
+    if (result.notFound) { if (++vezes404 >= 2) break; }
+    else vezes404 = 0;
     await page.waitForTimeout(700);
   } while (Date.now() < deadline);
 

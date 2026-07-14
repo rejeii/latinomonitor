@@ -27,6 +27,16 @@ const tag   = p => `[${NOMES[p.fornecedor] || p.fornecedor}]`;
 // e são poucos produtos, então 1 aba custa segundos e evita o bloqueio.
 const MAX_ABAS_FORNECEDOR = { atacadocollections: 1 };
 
+// Falhas SEGUIDAS no retry que indicam site fora do ar → desiste do resto
+// (o canário suprime as escritas do fornecedor caído; nada se perde).
+// Sem isso, um site 100% fora faz o retry sequencial estourar o limite
+// de 60min do job (204 URLs × deadline ≈ 80min só de revisita).
+const RETRY_BAILOUT = 8;
+
+// Máximo de screenshots de debug por fornecedor — com o site caído,
+// centenas de fotos idênticas só inflam o artifact e o tempo do run.
+const MAX_SHOTS_FORNECEDOR = 3;
+
 
 async function main() {
   log('=== LatinoGG Monitor (Playwright) iniciado ===');
@@ -127,9 +137,16 @@ async function main() {
     if (falhas.length) {
       retryFalhas += falhas.length;
       let recuperadas = 0;
+      let seguidas = 0;
+      let shotsFornecedor = 0;
       log(`[RETRY] ${NOMES[fornecedor] || fornecedor}: ${falhas.length} URL(s) falharam na 1ª tentativa — aguardando ${Math.round(RETRY_COOLDOWN_MS / 1000)}s antes de tentar de novo`);
       await sleep(RETRY_COOLDOWN_MS);
-      for (const { url, grupo } of falhas) {
+      for (let i = 0; i < falhas.length; i++) {
+        if (seguidas >= RETRY_BAILOUT) {
+          log(`[RETRY] ${NOMES[fornecedor] || fornecedor}: ${RETRY_BAILOUT} falhas seguidas — site deve estar fora do ar, desistindo das ${falhas.length - i} restantes`);
+          break;
+        }
+        const { url, grupo } = falhas[i];
         const produto = grupo[0];
         await sleep(DELAY_MS);
         const novo = await scrape(produto);
@@ -137,16 +154,22 @@ async function main() {
           log('[RETRY OK]', tag(produto), produto.nome);
           resultadoUrl.set(url, novo);
           recuperadas++;
+          seguidas = 0;
+        } else if (shotsFornecedor >= MAX_SHOTS_FORNECEDOR) {
+          log('[RETRY FALHOU]', tag(produto), produto.nome);
+          seguidas++;
         } else {
           // A page ainda está na URL que falhou — fotografa pra diagnóstico
           try {
             await mkdir('debug', { recursive: true });
             const arq = `debug/${String(++debugShots).padStart(2, '0')}-${produto.fornecedor}-${produto.nome.replace(/[^a-z0-9]+/gi, '_').slice(0, 60)}.png`;
             await page.screenshot({ path: arq });
+            shotsFornecedor++;
             log('[RETRY FALHOU]', tag(produto), produto.nome, `— screenshot: ${arq}`);
           } catch (e) {
             log('[RETRY FALHOU]', tag(produto), produto.nome, `— screenshot falhou: ${e.message}`);
           }
+          seguidas++;
         }
       }
       retryRecuperados += recuperadas;
@@ -255,13 +278,15 @@ async function main() {
         continue;
       }
 
-      // ── Sem preço (página quebrada, ou VisãoVip meio carregada só com U$) ──
+      // ── Sem preço (404 do site, página quebrada, ou só preço em U$) ──
       if (!price || price <= 0) {
-        const tipo = r.usdOnly ? 'Preço só em U$' : 'Sem preço';
-        const msg  = r.usdOnly
-          ? 'Página carregou só o preço em dólar (a conversão pra R$ não veio)'
-          : 'Não foi possível ler o preço';
-        log(r.usdOnly ? '[SÓ U$]' : '[SEM PREÇO]', tag(produto), produto.nome);
+        const tipo = r.notFound ? 'Página 404' : r.usdOnly ? 'Preço só em U$' : 'Sem preço';
+        const msg  = r.notFound
+          ? 'Produto não carregou (página 404 do site — instabilidade ou URL morta)'
+          : r.usdOnly
+            ? 'Página carregou só o preço em dólar (a conversão pra R$ não veio)'
+            : 'Não foi possível ler o preço';
+        log(r.notFound ? '[404]' : r.usdOnly ? '[SÓ U$]' : '[SEM PREÇO]', tag(produto), produto.nome);
         erros++; conta(produto, 'erro');
         pushErroProduto(produto, tipo, msg, r);
         continue;

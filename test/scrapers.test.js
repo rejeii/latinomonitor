@@ -5,9 +5,11 @@
 import test from 'node:test';
 import assert from 'node:assert';
 
-// Timeouts curtos ANTES do import (lidos na carga do módulo)
+// Timeouts curtos ANTES do import (lidos na carga do módulo).
+// O deadline precisa comportar 2+ ciclos de polling (intervalo de 700ms)
+// para os testes de confirmação em 2 leituras (404).
 process.env.READY_TIMEOUT_MS  = '100';
-process.env.PRICE_DEADLINE_MS = '600';
+process.env.PRICE_DEADLINE_MS = '1600';
 
 const { detectarFornecedor, resultadoRuim, scrapeProduto, scrapeInPage } = await import('../src/scrapers.js');
 
@@ -58,7 +60,7 @@ test('scrapeProduto: sem preço, insiste até o deadline (PRICE_DEADLINE_MS) e d
   const dt = Date.now() - t0;
   assert.strictEqual(r.blocked, true);
   assert.ok(chamadas >= 1);
-  assert.ok(dt >= 500 && dt < 3000, `polling respeitou o deadline de 600ms (durou ${dt}ms)`);
+  assert.ok(dt >= 500 && dt < 4000, `polling respeitou o deadline de 1600ms (durou ${dt}ms)`);
 });
 
 test('scrapeProduto: rate-limit é página estática — encerra o polling na hora', async () => {
@@ -69,6 +71,25 @@ test('scrapeProduto: rate-limit é página estática — encerra o polling na ho
   assert.strictEqual(r.rateLimited, true);
   assert.strictEqual(chamadas, 1);
   assert.ok(Date.now() - t0 < 500, 'não deve esperar o deadline no rate-limit');
+});
+
+test('scrapeProduto: 404 em 2 leituras seguidas encerra sem esperar o deadline', async () => {
+  let chamadas = 0;
+  const page = fakePage(async () => { chamadas++; return { price: 0, status: 'Em estoque', blocked: false, notFound: true }; });
+  const r = await scrapeProduto(page, { url: 'https://www.visaovip.com/prod/x', fornecedor: 'visaovip' });
+  assert.strictEqual(r.notFound, true);
+  assert.strictEqual(chamadas, 2, '2 leituras confirmam o 404 — sem queimar o deadline inteiro');
+});
+
+test('scrapeProduto: 404 transitório do router não derruba o produto se o preço vier depois', async () => {
+  let chamadas = 0;
+  const page = fakePage(async () => {
+    chamadas++;
+    if (chamadas === 1) return { price: 0, status: 'Em estoque', blocked: false, notFound: true };
+    return { price: 88.8, status: 'Em estoque', blocked: false, notFound: false };
+  });
+  const r = await scrapeProduto(page, { url: 'https://www.visaovip.com/prod/x', fornecedor: 'visaovip' });
+  assert.strictEqual(r.price, 88.8);
 });
 
 // ── scrapeInPage com um document falso (a função é autocontida) ──
@@ -112,6 +133,15 @@ test('scrapeInPage: VisãoVip só com preço em U$ marca usdOnly (sem converter)
     () => scrapeInPage('visaovip'));
   assert.strictEqual(r.price, 0);
   assert.strictEqual(r.usdOnly, true);
+  assert.strictEqual(r.blocked, false);
+});
+
+test('scrapeInPage: página 404 da VisãoVip marca notFound', () => {
+  const r = comDocumento(
+    { body: { innerText: '404\nNÃO ENCONTRADO\nTente novamente\nParece que não foi encontrado nada nesta página.' } },
+    () => scrapeInPage('visaovip'));
+  assert.strictEqual(r.notFound, true);
+  assert.strictEqual(r.price, 0);
   assert.strictEqual(r.blocked, false);
 });
 
