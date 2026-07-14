@@ -129,7 +129,9 @@ npm start
   Turnstile) e rate-limit do fornecedor viram `Bloqueado` com o motivo; página da VisãoVip
   meio carregada (só preço em U$, sem a conversão pra R$) vira `Preço só em U$` — o
   monitor **não** converte por conta própria: a cotação exibida é arredondada e poluiria
-  o baseline com valores que o site nunca mostrou.
+  o baseline com valores que o site nunca mostrou. Quando detecta esse estado, o polling
+  ganha uma extensão única de `USD_EXTRA_MS` (padrão 15s) pra dar tempo da conversão
+  aparecer antes de desistir.
 - **Site fora do ar não estoura o job:** a página 404 da SPA da VisãoVip é detectada em
   ~1,5s (2 leituras seguidas) em vez de queimar os ~42s de espera+polling por URL — foi
   isso que fez runs passarem de 60min quando o site caiu de vez. No retry, 8 falhas

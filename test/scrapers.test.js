@@ -10,6 +10,7 @@ import assert from 'node:assert';
 // para os testes de confirmação em 2 leituras (404).
 process.env.READY_TIMEOUT_MS  = '100';
 process.env.PRICE_DEADLINE_MS = '1600';
+process.env.USD_EXTRA_MS      = '1400';
 
 const { detectarFornecedor, resultadoRuim, scrapeProduto, scrapeInPage } = await import('../src/scrapers.js');
 
@@ -79,6 +80,29 @@ test('scrapeProduto: 404 em 2 leituras seguidas encerra sem esperar o deadline',
   const r = await scrapeProduto(page, { url: 'https://www.visaovip.com/prod/x', fornecedor: 'visaovip' });
   assert.strictEqual(r.notFound, true);
   assert.strictEqual(chamadas, 2, '2 leituras confirmam o 404 — sem queimar o deadline inteiro');
+});
+
+test('scrapeProduto: página só com U$ ganha extensão do deadline e pega o R$ atrasado', async () => {
+  // 3 leituras "só U$" estouram o deadline base (1600ms); a extensão
+  // (USD_EXTRA_MS=1400) mantém o polling vivo até a conversão aparecer.
+  let chamadas = 0;
+  const page = fakePage(async () => {
+    chamadas++;
+    if (chamadas <= 3) return { price: 0, status: 'Em estoque', blocked: false, usdOnly: true };
+    return { price: 431.48, status: 'Em estoque', blocked: false, usdOnly: false };
+  });
+  const r = await scrapeProduto(page, { url: 'https://www.visaovip.com/prod/x', fornecedor: 'visaovip' });
+  assert.strictEqual(r.price, 431.48);
+  assert.ok(chamadas >= 4, `a extensão deve permitir a 4ª leitura (houve ${chamadas})`);
+});
+
+test('scrapeProduto: só U$ até o fim estende UMA vez e devolve usdOnly', async () => {
+  const page = fakePage(async () => ({ price: 0, status: 'Em estoque', blocked: false, usdOnly: true }));
+  const t0 = Date.now();
+  const r  = await scrapeProduto(page, { url: 'https://www.visaovip.com/prod/x', fornecedor: 'visaovip' });
+  const dt = Date.now() - t0;
+  assert.strictEqual(r.usdOnly, true);
+  assert.ok(dt < 5000, `extensão é única — não pode crescer sem limite (durou ${dt}ms)`);
 });
 
 test('scrapeProduto: 404 transitório do router não derruba o produto se o preço vier depois', async () => {

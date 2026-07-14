@@ -8,6 +8,7 @@
 // test-produto.js, sem NOTION_TOKEN — e o config.js exige o token ao carregar.
 const READY_TIMEOUT_MS  = Number(process.env.READY_TIMEOUT_MS  || 20000); // espera o seletor de "página pronta"
 const PRICE_DEADLINE_MS = Number(process.env.PRICE_DEADLINE_MS || 22000); // polling do preço (Cloudflare se auto-resolve)
+const USD_EXTRA_MS      = Number(process.env.USD_EXTRA_MS      || 15000); // espera extra quando a página está viva mas só com U$
 
 export function detectarFornecedor(url) {
   if (!url) return null;
@@ -117,9 +118,10 @@ export async function scrapeProduto(page, produto) {
   // Cloudflare ("Just a moment") se auto-resolve em alguns segundos num
   // navegador real — damos tempo (deadline maior) para ele limpar.
   // Exceção: rate-limit do fornecedor é página estática — esperar não ajuda.
-  const deadline = Date.now() + PRICE_DEADLINE_MS;
+  let deadline = Date.now() + PRICE_DEADLINE_MS;
   let result;
   let vezes404 = 0;
+  let estendido = false;
   do {
     result = await page.evaluate(scrapeInPage, fornecedor);
     if (result.price > 0 || result.status === 'Esgotado' || result.rateLimited) break;
@@ -128,6 +130,10 @@ export async function scrapeProduto(page, produto) {
     // do ar, cada URL custa ~1,5s em vez do deadline inteiro.
     if (result.notFound) { if (++vezes404 >= 2) break; }
     else vezes404 = 0;
+    // Página viva mas só com U$: a conversão pra R$ pode estar a caminho —
+    // estende o deadline UMA vez. Só afeta esse estado raro; página quebrada
+    // de outro jeito continua respeitando o deadline normal.
+    if (result.usdOnly && !estendido) { deadline += USD_EXTRA_MS; estendido = true; }
     await page.waitForTimeout(700);
   } while (Date.now() < deadline);
 
