@@ -93,11 +93,13 @@ export function scrapeInPage(fornecedor) {
   return { price, status, blocked, rateLimited, usdOnly, notFound };
 }
 
-// Resultado de scrape que merece retry: erro, bloqueio ou sem preço
-// (esgotado NÃO é falha — é um estado legítimo do produto).
+// Resultado de scrape que merece retry: falhas transitórias (erro, bloqueio ou sem preço).
+// Páginas 404 confirmadas (notFound) e esgotados NÃO merecem retry.
 export function resultadoRuim(r) {
+  if (r.notFound) return false;
   return !!r.erro || !!r.blocked || (!(r.price > 0) && r.status !== 'Esgotado');
 }
+
 
 // Tenta detectar e clicar no iFrame do desafio Turnstile da Cloudflare usando cliques físicos de mouse
 async function tentarClicarTurnstile(page) {
