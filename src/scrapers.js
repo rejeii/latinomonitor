@@ -99,20 +99,23 @@ export function resultadoRuim(r) {
   return !!r.erro || !!r.blocked || (!(r.price > 0) && r.status !== 'Esgotado');
 }
 
-// Tenta detectar e clicar no iFrame do desafio Turnstile da Cloudflare
+// Tenta detectar e clicar no iFrame do desafio Turnstile da Cloudflare usando cliques físicos de mouse
 async function tentarClicarTurnstile(page) {
   try {
     for (const frame of page.frames()) {
       const u = frame.url();
       if (u.includes('challenges.cloudflare.com') || u.includes('turnstile')) {
-        const cb = await frame.$('input[type="checkbox"], .cb-i, #challenge-stage input');
-        if (cb) {
-          await cb.click({ timeout: 1000 }).catch(() => {});
+        const frameEl = await frame.frameElement();
+        const box = await frameEl?.boundingBox();
+        if (box && box.width > 0 && box.height > 0) {
+          // Clica no centro da área do checkbox à esquerda do widget Turnstile
+          await page.mouse.click(box.x + 30, box.y + box.height / 2).catch(() => {});
         }
       }
     }
   } catch {}
 }
+
 
 // Navega até a URL, espera renderizar e raspa preço + status.
 export async function scrapeProduto(page, produto) {
