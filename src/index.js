@@ -22,10 +22,9 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
 const log   = (...a) => console.log(new Date().toISOString(), ...a);
 const tag   = p => `[${NOMES[p.fornecedor] || p.fornecedor}]`;
 
-// Teto de abas por fornecedor (sobrepõe SCRAPE_CONCURRENCY). Collections e VisãoVip
-// rodam com 1 aba para evitar bloqueios de Cloudflare e rate-limit do site.
-const MAX_ABAS_FORNECEDOR = { atacadocollections: 1, visaovip: 1 };
-
+// Teto de abas por fornecedor (sobrepõe SCRAPE_CONCURRENCY). Collections usa 1 aba;
+// VisãoVip usa 2 abas em paralelo (no IP residencial é seguro e reduz o tempo pela metade).
+const MAX_ABAS_FORNECEDOR = { atacadocollections: 1, visaovip: 2 };
 
 // Falhas SEGUIDAS no retry que indicam site fora do ar → desiste do resto
 // (o canário suprime as escritas do fornecedor caído; nada se perde).
@@ -114,16 +113,23 @@ async function main() {
 
     // Abas do fornecedor consumindo a mesma fila até esvaziar
     const pendentes = [...fila];
+    let concluidos = 0;
     const abrirAba = async () => {
       const page   = await context.newPage();
       const scrape = raspar(page);
       let item;
       while ((item = pendentes.shift())) {
-        resultadoUrl.set(item.url, await scrape(item.grupo[0]));
+        const prod = item.grupo[0];
+        const r    = await scrape(prod);
+        resultadoUrl.set(item.url, r);
+        concluidos++;
+        const info = (r.price > 0) ? `R$${r.price.toFixed(2)}` : (r.blocked ? 'Bloqueado' : r.status || 'sem preço');
+        log(`[${concluidos}/${fila.length}]`, tag(prod), prod.nome, `— ${info}`);
         await sleep(DELAY_MS);
       }
       return page;
     };
+
     const nAbas = Math.min(MAX_ABAS_FORNECEDOR[fornecedor] ?? SCRAPE_CONCURRENCY, fila.length);
     const pages = await Promise.all(Array.from({ length: nAbas }, abrirAba));
 
