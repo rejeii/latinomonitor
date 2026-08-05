@@ -11,7 +11,7 @@ permissions:
 
 jobs:
   monitor:
-    runs-on: ubuntu-latest
+    runs-on: self-hosted
     timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4
@@ -25,8 +25,6 @@ jobs:
         run: npm ci
 
       # Guarda o download do Chromium (~150 MB) entre runs — economiza 1-2 min
-      # de minutos do Actions por execução. A chave muda quando a versão do
-      # Playwright muda (via package-lock.json), forçando um download novo.
       - name: Cache do Chromium (Playwright)
         id: playwright-cache
         uses: actions/cache@v4
@@ -74,6 +72,7 @@ jobs:
       # Avisa no Discord se QUALQUER passo acima falhar (npm/playwright/node/infra)
       - name: Avisar falha no Discord
         if: failure()
+        shell: bash
         env:
           WEBHOOK: ${{ secrets.DISCORD_WEBHOOK_INICIO }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
@@ -81,3 +80,4 @@ jobs:
           if [ -z "$WEBHOOK" ]; then exit 0; fi
           curl -s -X POST "$WEBHOOK" -H "Content-Type: application/json" \
             -d "{\"embeds\":[{\"title\":\"❌ LatinoGG Monitor — run FALHOU\",\"description\":\"Um passo do workflow falhou. [Ver logs do run]($RUN_URL)\",\"color\":15158332}]}"
+

@@ -99,6 +99,21 @@ export function resultadoRuim(r) {
   return !!r.erro || !!r.blocked || (!(r.price > 0) && r.status !== 'Esgotado');
 }
 
+// Tenta detectar e clicar no iFrame do desafio Turnstile da Cloudflare
+async function tentarClicarTurnstile(page) {
+  try {
+    for (const frame of page.frames()) {
+      const u = frame.url();
+      if (u.includes('challenges.cloudflare.com') || u.includes('turnstile')) {
+        const cb = await frame.$('input[type="checkbox"], .cb-i, #challenge-stage input');
+        if (cb) {
+          await cb.click({ timeout: 1000 }).catch(() => {});
+        }
+      }
+    }
+  } catch {}
+}
+
 // Navega até a URL, espera renderizar e raspa preço + status.
 export async function scrapeProduto(page, produto) {
   const { url, fornecedor } = produto;
@@ -123,6 +138,7 @@ export async function scrapeProduto(page, produto) {
   let vezes404 = 0;
   let estendido = false;
   do {
+    await tentarClicarTurnstile(page);
     result = await page.evaluate(scrapeInPage, fornecedor);
     if (result.price > 0 || result.status === 'Esgotado' || result.rateLimited) break;
     // 404 da SPA: 2 leituras seguidas confirmam (1 só pode ser estado
@@ -139,3 +155,4 @@ export async function scrapeProduto(page, produto) {
 
   return result;
 }
+

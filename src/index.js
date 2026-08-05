@@ -22,10 +22,10 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
 const log   = (...a) => console.log(new Date().toISOString(), ...a);
 const tag   = p => `[${NOMES[p.fornecedor] || p.fornecedor}]`;
 
-// Teto de abas por fornecedor (sobrepõe SCRAPE_CONCURRENCY). A Collections
-// corta o acesso com "requisições fora do normal" quando o ritmo sobe —
-// e são poucos produtos, então 1 aba custa segundos e evita o bloqueio.
-const MAX_ABAS_FORNECEDOR = { atacadocollections: 1 };
+// Teto de abas por fornecedor (sobrepõe SCRAPE_CONCURRENCY). Collections e VisãoVip
+// rodam com 1 aba para evitar bloqueios de Cloudflare e rate-limit do site.
+const MAX_ABAS_FORNECEDOR = { atacadocollections: 1, visaovip: 1 };
+
 
 // Falhas SEGUIDAS no retry que indicam site fora do ar → desiste do resto
 // (o canário suprime as escritas do fornecedor caído; nada se perde).
