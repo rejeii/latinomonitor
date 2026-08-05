@@ -23,8 +23,9 @@ const log   = (...a) => console.log(new Date().toISOString(), ...a);
 const tag   = p => `[${NOMES[p.fornecedor] || p.fornecedor}]`;
 
 // Teto de abas por fornecedor (sobrepõe SCRAPE_CONCURRENCY). Collections usa 1 aba;
-// VisãoVip usa 2 abas em paralelo (no IP residencial é seguro e reduz o tempo pela metade).
-const MAX_ABAS_FORNECEDOR = { atacadocollections: 1, visaovip: 2 };
+// VisãoVip usa 5 abas em paralelo (aproveita o processador Ryzen 7 5700X e 48GB RAM para velocidade máxima).
+const MAX_ABAS_FORNECEDOR = { atacadocollections: 1, visaovip: 5 };
+
 
 // Falhas SEGUIDAS no retry que indicam site fora do ar → desiste do resto
 // (o canário suprime as escritas do fornecedor caído; nada se perde).
