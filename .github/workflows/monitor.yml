@@ -12,6 +12,9 @@ permissions:
 jobs:
   monitor:
     runs-on: self-hosted
+    defaults:
+      run:
+        shell: cmd
     timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4
@@ -58,21 +61,13 @@ jobs:
       # Avisa no Discord se QUALQUER passo acima falhar
       - name: Avisar falha no Discord
         if: failure()
-        shell: powershell
         env:
           WEBHOOK: ${{ secrets.DISCORD_WEBHOOK_INICIO }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
-          if (-not $env:WEBHOOK) { exit 0 }
-          $body = @{
-            embeds = @(
-              @{
-                title = "❌ LatinoGG Monitor — run FALHOU"
-                description = "Um passo do workflow falhou. [Ver logs do run]($env:RUN_URL)"
-                color = 15158332
-              }
-            )
-          } | ConvertTo-Json -Depth 5
-          Invoke-RestMethod -Uri $env:WEBHOOK -Method Post -ContentType "application/json" -Body $body
+          if defined WEBHOOK (
+            curl -s -X POST "%WEBHOOK%" -H "Content-Type: application/json" -d "{\"embeds\":[{\"title\":\"❌ LatinoGG Monitor — run FALHOU\",\"description\":\"Um passo do workflow falhou. [Ver logs do run](%RUN_URL%)\",\"color\":15158332}]}"
+          )
+
 
 
