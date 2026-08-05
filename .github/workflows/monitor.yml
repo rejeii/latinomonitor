@@ -24,22 +24,8 @@ jobs:
       - name: Instalar dependências
         run: npm ci
 
-      # Guarda o download do Chromium (~150 MB) entre runs — economiza 1-2 min
-      - name: Cache do Chromium (Playwright)
-        id: playwright-cache
-        uses: actions/cache@v4
-        with:
-          path: ~/.cache/ms-playwright
-          key: playwright-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
-
       - name: Instalar Chromium (Playwright)
-        if: steps.playwright-cache.outputs.cache-hit != 'true'
-        run: npx playwright install --with-deps chromium
-
-      # Com cache, o navegador já existe — só as libs de sistema precisam ser instaladas
-      - name: Instalar dependências de sistema do Chromium
-        if: steps.playwright-cache.outputs.cache-hit == 'true'
-        run: npx playwright install-deps chromium
+        run: npx playwright install chromium
 
       - name: Rodar monitor
         env:
@@ -69,15 +55,24 @@ jobs:
           if-no-files-found: ignore
           retention-days: 7
 
-      # Avisa no Discord se QUALQUER passo acima falhar (npm/playwright/node/infra)
+      # Avisa no Discord se QUALQUER passo acima falhar
       - name: Avisar falha no Discord
         if: failure()
-        shell: bash
+        shell: powershell
         env:
           WEBHOOK: ${{ secrets.DISCORD_WEBHOOK_INICIO }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
-          if [ -z "$WEBHOOK" ]; then exit 0; fi
-          curl -s -X POST "$WEBHOOK" -H "Content-Type: application/json" \
-            -d "{\"embeds\":[{\"title\":\"❌ LatinoGG Monitor — run FALHOU\",\"description\":\"Um passo do workflow falhou. [Ver logs do run]($RUN_URL)\",\"color\":15158332}]}"
+          if (-not $env:WEBHOOK) { exit 0 }
+          $body = @{
+            embeds = @(
+              @{
+                title = "❌ LatinoGG Monitor — run FALHOU"
+                description = "Um passo do workflow falhou. [Ver logs do run]($env:RUN_URL)"
+                color = 15158332
+              }
+            )
+          } | ConvertTo-Json -Depth 5
+          Invoke-RestMethod -Uri $env:WEBHOOK -Method Post -ContentType "application/json" -Body $body
+
 
