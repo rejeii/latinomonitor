@@ -71,10 +71,20 @@ export async function buscarProdutos() {
         const alvoAtingido = props['Alvo Atingido']?.checkbox === true;
         const fornecedor = detectarFornecedor(url);
 
+        const codigo     = props['Código']?.rich_text?.[0]?.plain_text ||
+                           (props['Código']?.number != null ? String(props['Código'].number) : null) ||
+                           props['Codigo']?.rich_text?.[0]?.plain_text ||
+                           (props['Codigo']?.number != null ? String(props['Codigo'].number) : null) ||
+                           props['SKU']?.rich_text?.[0]?.plain_text ||
+                           (props['SKU']?.number != null ? String(props['SKU'].number) : null) ||
+                           null;
+
         if (!url || !fornecedor) continue;
 
-        produtos.push({ pageId: page.id, nome, url, custoAtual, custoRef, menorPreco, hist30, status, precoAlvo, pausado, alvoAtingido, fornecedor, dbId });
+        produtos.push({ pageId: page.id, nome, url, codigo, custoAtual, custoRef, menorPreco, hist30, status, precoAlvo, pausado, alvoAtingido, fornecedor, dbId });
       }
+
+
 
       cursor = json.has_more ? json.next_cursor : null;
     } while (cursor);

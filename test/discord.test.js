@@ -9,7 +9,7 @@ process.env.NOTION_TOKEN           ||= 'test-token';
 process.env.NOTION_DATABASE_IDS    ||= 'db-teste';
 process.env.DISCORD_WEBHOOK_PRECOS ||= 'https://example.com/webhook';
 
-const { enviarLotePrecos, enviarLoteAlvos, sparklineUrl, NOMES } = await import('../src/discord.js');
+const { enviarLotePrecos, enviarLoteAlvos, enviarLoteEsgotados, enviarLoteVoltou, extrairCodigo, sparklineUrl, NOMES } = await import('../src/discord.js');
 
 // Captura os POSTs que o módulo faria
 const capturar = () => {
@@ -23,7 +23,7 @@ const capturar = () => {
 
 const produtoBase = {
   nome: 'Produto X',
-  url: 'https://www.visaovip.com/prod/x',
+  url: 'https://www.visaovip.com/prod/55612',
   fornecedor: 'visaovip',
   custoRef: 100,
   custoAtual: 100,
@@ -39,8 +39,39 @@ test('lotes vazios não postam nada', async () => {
   const posts = capturar();
   await enviarLotePrecos([]);
   await enviarLoteAlvos([]);
+  await enviarLoteEsgotados([]);
+  await enviarLoteVoltou([]);
   assert.strictEqual(posts.length, 0);
 });
+
+test('extrairCodigo: extrai o SKU/código correto da URL', () => {
+  assert.strictEqual(extrairCodigo('https://www.visaovip.com/prod/55612/fone-jbl'), '55612');
+  assert.strictEqual(extrairCodigo('https://www.atacadocollections.com/produto/9988/boneco'), '9988');
+  assert.strictEqual(extrairCodigo('https://www.atacadoconnect.com/p?codigo=ABC12'), 'ABC12');
+});
+
+test('enviarLoteEsgotados: inclui o campo Código / SKU no embed', async () => {
+  const posts = capturar();
+  await enviarLoteEsgotados([{ produto: { ...produtoBase, codigo: '55612' }, dbNome: 'Periféricos' }]);
+  assert.strictEqual(posts.length, 1);
+  const embed = posts[0].body.embeds[0];
+  assert.strictEqual(embed.title, '🚫  Produto esgotado no fornecedor');
+  const campo = n => embed.fields.find(f => f.name === n)?.value;
+  assert.strictEqual(campo('Código / SKU'), '55612');
+  assert.strictEqual(campo('Fornecedor'), 'VisãoVip');
+});
+
+test('enviarLoteVoltou: inclui o campo Código / SKU no embed', async () => {
+  const posts = capturar();
+  await enviarLoteVoltou([{ produto: produtoBase, preco: 120, dbNome: 'Periféricos' }]);
+  assert.strictEqual(posts.length, 1);
+  const embed = posts[0].body.embeds[0];
+  assert.strictEqual(embed.title, '🔄  Produto voltou ao estoque');
+  const campo = n => embed.fields.find(f => f.name === n)?.value;
+  assert.strictEqual(campo('Código / SKU'), '55612');
+  assert.strictEqual(campo('Preço atual'), 'R$ 120,00');
+});
+
 
 test('enviarLotePrecos: embed com preços formatados e badge de menor em 30d', async () => {
   const posts = capturar();

@@ -108,35 +108,63 @@ function embedAlvo(item) {
   };
 }
 
+export function extrairCodigo(url) {
+  if (!url) return null;
+  const mVisao = url.match(/\/prod\/(\d+)/i);
+  if (mVisao) return mVisao[1];
+  const mColl = url.match(/\/produto\/(\d+)/i);
+  if (mColl) return mColl[1];
+  const mParam = url.match(/[\?&](?:codigo|sku|id)=(\w+)/i);
+  if (mParam) return mParam[1];
+  return null;
+}
+
 function embedEsgotado(produto, dbNome) {
+  const cod = produto.codigo || extrairCodigo(produto.url);
+  const fields = [
+    { name: 'Fornecedor',     value: NOMES[produto.fornecedor] || produto.fornecedor, inline: true },
+    { name: 'Database',       value: dbNome || '—',                                   inline: true },
+  ];
+  if (cod) {
+    fields.push({ name: 'Código / SKU', value: String(cod), inline: true });
+  } else {
+    fields.push({ name: '​', value: '​', inline: true });
+  }
+  fields.push({ name: 'Custo anterior', value: brl(produto.custoAtual ?? produto.custoRef), inline: true });
+
   return {
     title:       '🚫  Produto esgotado no fornecedor',
     color:       9807270,
     url:         produto.url,
     description: `**${produto.nome}**`,
-    fields: [
-      { name: 'Fornecedor',     value: NOMES[produto.fornecedor] || produto.fornecedor, inline: true },
-      { name: 'Database',       value: dbNome || '—',                                   inline: true },
-      { name: 'Custo anterior', value: brl(produto.custoAtual ?? produto.custoRef),     inline: true },
-    ],
+    fields,
     footer: { text: 'LatinoGG Monitor · ' + agora() },
   };
 }
 
 function embedVoltou(produto, precoNovo, dbNome) {
+  const cod = produto.codigo || extrairCodigo(produto.url);
+  const fields = [
+    { name: 'Fornecedor',  value: NOMES[produto.fornecedor] || produto.fornecedor, inline: true },
+    { name: 'Database',    value: dbNome || '—',                                   inline: true },
+  ];
+  if (cod) {
+    fields.push({ name: 'Código / SKU', value: String(cod), inline: true });
+  } else {
+    fields.push({ name: '​', value: '​', inline: true });
+  }
+  fields.push({ name: 'Preço atual', value: brl(precoNovo), inline: true });
+
   return {
     title:       '🔄  Produto voltou ao estoque',
     color:       5763719,
     url:         produto.url,
     description: `**${produto.nome}**`,
-    fields: [
-      { name: 'Fornecedor',  value: NOMES[produto.fornecedor] || produto.fornecedor, inline: true },
-      { name: 'Database',    value: dbNome || '—',                                   inline: true },
-      { name: 'Preço atual', value: brl(precoNovo),                                  inline: true },
-    ],
+    fields,
     footer: { text: 'LatinoGG Monitor · ' + agora() },
   };
 }
+
 
 // items: [{ produto, preco, delta, dbNome, menor, novoMenor, novoMenor30, histValores }]
 export async function enviarLotePrecos(items) {
