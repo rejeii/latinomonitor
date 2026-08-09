@@ -62,3 +62,9 @@ export const NOTION_ERROR_DB_ID = process.env.NOTION_ERROR_DB_ID || '';
 
 // Canal dedicado de erros no Discord (opcional). Se vazio, erros só no resumo.
 export const DISCORD_WEBHOOK_ERROS = process.env.DISCORD_WEBHOOK_ERROS || '';
+
+// Configurações da Shopify
+export const SHOPIFY_DOMAIN       = process.env.SHOPIFY_DOMAIN || 'latinogg.myshopify.com';
+export const SHOPIFY_ACCESS_TOKEN = process.env.SHOPIFY_ACCESS_TOKEN || '';
+export const SHOPIFY_LOCATION_ID   = process.env.SHOPIFY_LOCATION_ID || '114689999165';
+

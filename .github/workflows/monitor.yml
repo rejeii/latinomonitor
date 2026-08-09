@@ -44,9 +44,14 @@ jobs:
           PRICE_HIGH_LEVEL:          ${{ vars.PRICE_HIGH_LEVEL }}
           ACTIONS_LIMIT_MIN:         ${{ vars.ACTIONS_LIMIT_MIN }}
           ACTIONS_ALERT_PCT:         ${{ vars.ACTIONS_ALERT_PCT }}
+          SHOPIFY_DOMAIN:            ${{ secrets.SHOPIFY_DOMAIN || 'latinogg.myshopify.com' }}
+          SHOPIFY_ACCESS_TOKEN:      ${{ secrets.SHOPIFY_ACCESS_TOKEN }}
+          SHOPIFY_LOCATION_ID:        ${{ secrets.SHOPIFY_LOCATION_ID || '114689999165' }}
+
           GH_TOKEN:                  ${{ github.token }}
           GH_REPO:                   ${{ github.repository }}
         run: npm start
+
 
       # Screenshots dos produtos que falharam 2x (debug de seletor/Cloudflare)
       - name: Publicar screenshots de debug

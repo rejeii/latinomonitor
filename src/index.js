@@ -14,11 +14,13 @@ import { buscarProdutos, atualizarProduto, prepararDatabases, prepararErrorDb, r
 import { scrapeProduto, resultadoRuim } from './scrapers.js';
 import { calcPriceChange, calcAlvo } from './priceChange.js';
 import { diaSP, parseHist, serializeHist } from './history.js';
-import { enviarLotePrecos, enviarLoteAlvos, enviarLoteEsgotados, enviarLoteVoltou, enviarResumo, enviarErro, enviarInicio, enviarAvisoCampos, enviarCanario, enviarAvisoUso, enviarRelatorioErros, NOMES } from './discord.js';
+import { enviarLotePrecos, enviarLoteAlvos, enviarLoteEsgotados, enviarLoteVoltou, enviarResumo, enviarErro, enviarInicio, enviarAvisoCampos, enviarCanario, enviarAvisoUso, enviarRelatorioErros, extrairCodigo, NOMES } from './discord.js';
 import { DELAY_MS, NAV_TIMEOUT_MS, SCRAPE_CONCURRENCY, RETRY_COOLDOWN_MS, PRICE_THRESHOLD, PRICE_THRESHOLD_HIGH, PRICE_HIGH_LEVEL, CANARY_RATIO, CANARY_MIN, ACTIONS_ALERT_PCT, NOTION_ERROR_DB_ID } from './config.js';
 import { checarUsoActions } from './usage.js';
+import { atualizarEstoqueShopify } from './shopify.js';
 
 const sleep = ms => new Promise(r => setTimeout(r, ms));
+
 const log   = (...a) => console.log(new Date().toISOString(), ...a);
 const tag   = p => `[${NOMES[p.fornecedor] || p.fornecedor}]`;
 
@@ -238,6 +240,7 @@ async function main() {
   const conta   = (p, key)    => { bump(p.fornecedor, key); bumpDb(p.dbId, key); };
 
   let est = 0, precoAlt = 0, alvoCount = 0, esgotadoTot = 0, esgotadoNovo = 0, voltouCount = 0, erros = 0, bloqueados = 0, suprimidos = 0;
+  let shopifyEsgotados = 0, shopifyVoltou = 0, shopifyErros = 0;
 
   // ── FASE 2: processa (escreve + alerta), pulando fornecedores suspeitos ──
   for (const r of resultados) {
@@ -267,7 +270,7 @@ async function main() {
         continue;
       }
 
-      // ── Esgotado: escreve; alerta só na transição ──
+      // ── Esgotado: escreve; alerta e sincroniza Shopify só na transição ──
       if (status === 'Esgotado') {
         esgotadoTot++; conta(produto, 'esgotado');
         await atualizarProduto(produto.pageId, {
@@ -278,6 +281,11 @@ async function main() {
           log('[ESGOTADO]', tag(produto), produto.nome);
           esgotadoAlerts.push({ produto, dbNome: labelDb(produto.dbId) });
           esgotadoNovo++; conta(produto, 'esgNovo');
+
+          // Sincroniza estoque na Shopify (Quantidade ➔ 0)
+          const cod = produto.codigo || extrairCodigo(produto.url);
+          const sh = await atualizarEstoqueShopify({ sku: cod, quantidade: 0, produtoNome: produto.nome });
+          if (sh.ok) shopifyEsgotados++; else shopifyErros++;
         } else {
           log('[esgotado]', tag(produto), produto.nome);
         }
@@ -306,7 +314,7 @@ async function main() {
       }
 
 
-      // ── Em estoque: escreve, depois decide alerta ──
+      // ── Em estoque: escreve, depois decide alerta e sincroniza Shopify se voltou ──
       const voltou = produto.status === 'Esgotado';
       const change = calcPriceChange(price, produto.custoRef);
       const alvo   = calcAlvo(price, produto.precoAlvo, produto.alvoAtingido);
@@ -344,6 +352,11 @@ async function main() {
         log('[VOLTOU]', tag(produto), produto.nome, `— R$${price.toFixed(2)}`);
         restockAlerts.push({ produto, preco: price, dbNome: labelDb(produto.dbId) });
         voltouCount++; conta(produto, 'voltou');
+
+        // Sincroniza estoque na Shopify (Quantidade ➔ 100)
+        const cod = produto.codigo || extrairCodigo(produto.url);
+        const sh = await atualizarEstoqueShopify({ sku: cod, quantidade: 100, produtoNome: produto.nome });
+        if (sh.ok) shopifyVoltou++; else shopifyErros++;
       } else if (change?.triggered) {
         const seta = change.delta > 0 ? '▲' : '▼';
         log('[ALERTA ' + seta + ']', tag(produto), produto.nome,
@@ -355,6 +368,7 @@ async function main() {
         log('[ok]', tag(produto), produto.nome, `— R$${price.toFixed(2)}`);
         est++; conta(produto, 'ok');
       }
+
 
       // Alvo é independente do alerta de variação (os dois podem disparar juntos)
       if (alvo.alertar) {
@@ -410,6 +424,11 @@ async function main() {
     ? '\n🐤 Suprimidos (scraper suspeito): ' + suprimidos + ' — ' + canarios.map(c => NOMES[c.fornecedor] || c.fornecedor).join(', ')
     : '';
 
+  const totalShopify = shopifyEsgotados + shopifyVoltou;
+  const linhaShopify = (totalShopify > 0 || shopifyErros > 0)
+    ? `\n🛍️ Shopify: ${totalShopify} produto(s) sincronizado(s) (${shopifyEsgotados} esgotado(s) ➔ 0, ${shopifyVoltou} restabelecido(s) ➔ 100)` + (shopifyErros ? ` · ⚠️ ${shopifyErros} falha(s)` : '')
+    : '';
+
   const totais =
     `Limite de alerta: R$${PRICE_THRESHOLD} (R$${PRICE_THRESHOLD_HIGH} acima de R$${PRICE_HIGH_LEVEL})\n` +
     `Total verificado: ${produtos.length}\n` +
@@ -420,12 +439,14 @@ async function main() {
     `🔄 Voltaram ao estoque: ${voltouCount}\n` +
     `⛔ Bloqueados: ${bloqueados}\n` +
     `❌ Erros: ${erros}` +
+    linhaShopify +
     (retryFalhas ? `\n🔁 Retry: ${retryFalhas} falha(s) na 1ª tentativa, ${retryRecuperados} recuperada(s)` : '') +
     (debugShots ? `\n📸 Screenshots de debug: ${debugShots} (artifact do run no GitHub)` : '') +
     (pausados.length ? `\n⏸️ Pausados: ${pausados.length}` : '') +
     (duplicados.length ? `\n⚠️ Duplicados (mesma URL): ${duplicados.length}` : '') +
     linhaCanario +
     linhaUso;
+
 
   const porFornecedor = Object.entries(stats).map(([f, s]) =>
     `• ${NOMES[f] || f}: ${s.ok} ok · ${s.preco} alt · ${s.esgotado} esg · ${s.voltou} volt · ${s.bloqueado} bloq · ${s.erro} erro`
