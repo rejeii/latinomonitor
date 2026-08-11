@@ -241,6 +241,7 @@ async function main() {
 
   let est = 0, precoAlt = 0, alvoCount = 0, esgotadoTot = 0, esgotadoNovo = 0, voltouCount = 0, erros = 0, bloqueados = 0, suprimidos = 0;
   let shopifyEsgotados = 0, shopifyVoltou = 0, shopifyErros = 0;
+  const shopifyFalhas = [];
 
   // ── FASE 2: processa (escreve + alerta), pulando fornecedores suspeitos ──
   for (const r of resultados) {
@@ -285,13 +286,19 @@ async function main() {
           // Sincroniza estoque na Shopify (Quantidade ➔ 0)
           const cod = produto.codigo || extrairCodigo(produto.url);
           const sh = await atualizarEstoqueShopify({ sku: cod, quantidade: 0, produtoNome: produto.nome });
-          if (sh.ok) shopifyEsgotados++; else shopifyErros++;
+          if (sh.ok) {
+            shopifyEsgotados++;
+          } else {
+            shopifyErros++;
+            shopifyFalhas.push({ nome: produto.nome, sku: cod || 'Sem SKU', motivo: sh.motivo });
+          }
         } else {
           log('[esgotado]', tag(produto), produto.nome);
         }
         await sleep(150);
         continue;
       }
+
 
       // ── Sem preço (404 do site, página quebrada, ou só preço em U$) ──
       if (!price || price <= 0) {
@@ -356,7 +363,12 @@ async function main() {
         // Sincroniza estoque na Shopify (Quantidade ➔ 100)
         const cod = produto.codigo || extrairCodigo(produto.url);
         const sh = await atualizarEstoqueShopify({ sku: cod, quantidade: 100, produtoNome: produto.nome });
-        if (sh.ok) shopifyVoltou++; else shopifyErros++;
+        if (sh.ok) {
+          shopifyVoltou++;
+        } else {
+          shopifyErros++;
+          shopifyFalhas.push({ nome: produto.nome, sku: cod || 'Sem SKU', motivo: sh.motivo });
+        }
       } else if (change?.triggered) {
         const seta = change.delta > 0 ? '▲' : '▼';
         log('[ALERTA ' + seta + ']', tag(produto), produto.nome,
@@ -425,8 +437,12 @@ async function main() {
     : '';
 
   const totalShopify = shopifyEsgotados + shopifyVoltou;
+  const detalhesFalhasStr = shopifyFalhas.length > 0
+    ? '\n' + shopifyFalhas.map(f => `  • ⚠️ **${f.nome}** (SKU: \`${f.sku}\`) ➔ ${f.motivo}`).join('\n')
+    : '';
+
   const linhaShopify = (totalShopify > 0 || shopifyErros > 0)
-    ? `\n🛍️ Shopify: ${totalShopify} produto(s) sincronizado(s) (${shopifyEsgotados} esgotado(s) ➔ 0, ${shopifyVoltou} restabelecido(s) ➔ 100)` + (shopifyErros ? ` · ⚠️ ${shopifyErros} falha(s)` : '')
+    ? `\n🛍️ Shopify: ${totalShopify} produto(s) sincronizado(s) (${shopifyEsgotados} esgotado(s) ➔ 0, ${shopifyVoltou} restabelecido(s) ➔ 100)` + (shopifyErros ? ` · ⚠️ ${shopifyErros} falha(s)` + detalhesFalhasStr : '')
     : '';
 
   const totais =
