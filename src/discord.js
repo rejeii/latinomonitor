@@ -4,7 +4,7 @@
 //  saiam, não só os primeiros.
 // ============================================================
 
-import { DISCORD_WEBHOOK_PRECOS, DISCORD_WEBHOOK_ESGOTADOS, DISCORD_WEBHOOK_INICIO, DISCORD_WEBHOOK_ERROS } from './config.js';
+import { DISCORD_WEBHOOK_PRECOS, DISCORD_WEBHOOK_ESGOTADOS, DISCORD_WEBHOOK_INICIO, DISCORD_WEBHOOK_ERROS, DISCORD_WEBHOOK_URGENCIAS } from './config.js';
 
 export const NOMES = {
   visaovip:           'VisãoVip',
@@ -170,6 +170,32 @@ function embedVoltou(produto, precoNovo, dbNome) {
 export async function enviarLotePrecos(items) {
   if (!items.length) return;
   await postEmbeds(DISCORD_WEBHOOK_PRECOS, items.map(embedPreco));
+}
+
+// items: [{ produto, precoVenda, custo, margem, dbNome }]
+function embedMargem(produto, precoVenda, custo, margem, dbNome) {
+  const forn = NOMES[produto.fornecedor] || produto.fornecedor;
+  const dbStr = dbNome ? ` [${dbNome}]` : '';
+  const cod = produto.codigo || 'S/N';
+  
+  return {
+    title:       '⚠️  Alerta Crítico: Margem de Lucro Baixa',
+    color:       15105570, // Laranja chamativo
+    url:         produto.url,
+    description: `**${produto.nome}**\n*${forn}${dbStr}*`,
+    fields: [
+      { name: 'Código / SKU', value: String(cod), inline: false },
+      { name: 'Custo Fornecedor', value: brl(custo), inline: true },
+      { name: 'Preço Venda (Loja)', value: brl(precoVenda), inline: true },
+      { name: 'Margem Atual', value: `**${brl(margem)}**`, inline: true }
+    ],
+    footer: { text: 'LatinoGG Monitor · ' + agora() },
+  };
+}
+
+export async function enviarLoteMargem(items) {
+  if (!items.length) return;
+  await postEmbeds(DISCORD_WEBHOOK_URGENCIAS, items.map(i => embedMargem(i.produto, i.precoVenda, i.custo, i.margem, i.dbNome)));
 }
 
 // items: [{ produto, preco, dbNome }]

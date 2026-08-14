@@ -79,3 +79,29 @@ test('calcAlvo: depois de rearmar, nova queda alerta de novo', () => {
 test('calcAlvo: preço inválido não alerta', () => {
   assert.deepStrictEqual(calcAlvo(0, 100, false), { atingido: false, alertar: false });
 });
+
+const { calcularPrecoPsicologico, calcularPrecoComparacao } = await import('../src/priceChange.js');
+
+test('calcularPrecoPsicologico: arredonda para o próximo múltiplo de 10 terminando em .90', () => {
+  assert.strictEqual(calcularPrecoPsicologico(1513.79), 1519.90);
+  assert.strictEqual(calcularPrecoPsicologico(1500.00), 1499.90);
+  assert.strictEqual(calcularPrecoPsicologico(1386.01), 1389.90);
+  assert.strictEqual(calcularPrecoPsicologico(1519.90), 1519.90); // já no formato
+});
+
+test('calcularPrecoPsicologico: retorna o próprio valor se for inválido', () => {
+  assert.strictEqual(calcularPrecoPsicologico(0), 0);
+  assert.strictEqual(calcularPrecoPsicologico(null), null);
+});
+
+test('calcularPrecoComparacao: mantém a proporção do desconto e aplica regra psicológica', () => {
+  // precoAntigo = 1500, compAntigo = 2000 (desconto de 25%, fator 1.333...)
+  // precoNovo = 1513.79 -> compNovoCru = 2018.38... -> arredonda p/ 2019.90
+  assert.strictEqual(calcularPrecoComparacao(1500, 2000, 1513.79), 2019.90);
+  
+  // Se precoComparacao antigo era menor que o precoAntigo (sem desconto), retorna null
+  assert.strictEqual(calcularPrecoComparacao(2000, 1500, 1500), null);
+  
+  // Se faltar algum parametro, retorna null
+  assert.strictEqual(calcularPrecoComparacao(null, 2000, 1500), null);
+});

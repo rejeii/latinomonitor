@@ -12,12 +12,12 @@ import { mkdir } from 'node:fs/promises';
 import { criarNavegador } from './browser.js';
 import { buscarProdutos, atualizarProduto, prepararDatabases, prepararErrorDb, registrarErro } from './notion.js';
 import { scrapeProduto, resultadoRuim } from './scrapers.js';
-import { calcPriceChange, calcAlvo } from './priceChange.js';
+import { calcPriceChange, calcAlvo, calcularPrecoPsicologico, calcularPrecoComparacao } from './priceChange.js';
 import { diaSP, parseHist, serializeHist } from './history.js';
-import { enviarLotePrecos, enviarLoteAlvos, enviarLoteEsgotados, enviarLoteVoltou, enviarResumo, enviarErro, enviarInicio, enviarAvisoCampos, enviarCanario, enviarAvisoUso, enviarRelatorioErros, extrairCodigo, NOMES } from './discord.js';
-import { DELAY_MS, NAV_TIMEOUT_MS, SCRAPE_CONCURRENCY, RETRY_COOLDOWN_MS, PRICE_THRESHOLD, PRICE_THRESHOLD_HIGH, PRICE_HIGH_LEVEL, CANARY_RATIO, CANARY_MIN, ACTIONS_ALERT_PCT, NOTION_ERROR_DB_ID } from './config.js';
+import { enviarLotePrecos, enviarLoteAlvos, enviarLoteEsgotados, enviarLoteVoltou, enviarLoteMargem, enviarResumo, enviarErro, enviarInicio, enviarAvisoCampos, enviarCanario, enviarAvisoUso, enviarRelatorioErros, extrairCodigo, NOMES } from './discord.js';
+import { DELAY_MS, NAV_TIMEOUT_MS, SCRAPE_CONCURRENCY, RETRY_COOLDOWN_MS, PRICE_THRESHOLD, PRICE_THRESHOLD_HIGH, PRICE_HIGH_LEVEL, CANARY_RATIO, CANARY_MIN, ACTIONS_ALERT_PCT, NOTION_ERROR_DB_ID, MARGEM_MINIMA_ABS } from './config.js';
 import { checarUsoActions } from './usage.js';
-import { atualizarEstoqueShopify } from './shopify.js';
+import { atualizarEstoqueShopify, buscarPrecosShopify, atualizarPrecosShopify } from './shopify.js';
 
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 
@@ -231,6 +231,7 @@ async function main() {
   const alvoAlerts     = [];
   const esgotadoAlerts = [];
   const restockAlerts  = [];
+  const margemAlerts   = [];
 
   const stats   = {};
   const statsDb = {};
@@ -240,7 +241,7 @@ async function main() {
   const conta   = (p, key)    => { bump(p.fornecedor, key); bumpDb(p.dbId, key); };
 
   let est = 0, precoAlt = 0, alvoCount = 0, esgotadoTot = 0, esgotadoNovo = 0, voltouCount = 0, erros = 0, bloqueados = 0, suprimidos = 0;
-  let shopifyEsgotados = 0, shopifyVoltou = 0, shopifyErros = 0;
+  let shopifyEsgotados = 0, shopifyVoltou = 0, shopifyErros = 0, shopifyPrecosAtualizados = 0;
   const shopifyFalhas = [];
 
   // ── FASE 2: processa (escreve + alerta), pulando fornecedores suspeitos ──
@@ -353,6 +354,51 @@ async function main() {
         props['Alteração']        = { select: { name: 'Estável' } };
         props['Alteração de']     = { number: 0 };
       }
+
+      // ── Sincronização Dinâmica de Preços com a Shopify ──
+      const cod = produto.codigo || extrairCodigo(produto.url);
+      if (cod) {
+        if (produto.precoVenda == null) {
+          // 1ª run (campo vazio no Notion): Busca os valores reais da Shopify para servir de base
+          const shPrecos = await buscarPrecosShopify(cod);
+          if (shPrecos) {
+            props['Preço Venda'] = { number: shPrecos.price };
+            if (shPrecos.compareAtPrice != null) {
+              props['Preço Comparação'] = { number: shPrecos.compareAtPrice };
+            }
+            produto.precoVenda = shPrecos.price;
+            produto.precoComparacao = shPrecos.compareAtPrice;
+            log('[PREÇO SHOPIFY] Lidos na 1ª run para', produto.nome, `— Venda: R$${shPrecos.price}`);
+          }
+        }
+        
+        if (produto.precoVenda != null && change?.triggered) {
+          // Já temos uma base de venda e o fornecedor mudou de preço (delta)
+          const novoVendaBase = produto.precoVenda + change.delta;
+          const novoVendaPsico = calcularPrecoPsicologico(novoVendaBase);
+          const novoComparacao = calcularPrecoComparacao(produto.precoVenda, produto.precoComparacao, novoVendaPsico);
+
+          const shUpdate = await atualizarPrecosShopify({
+            sku: cod,
+            precoVenda: novoVendaPsico,
+            precoComparacao: novoComparacao,
+            precoCusto: price, // Custo atual exato do fornecedor
+            produtoNome: produto.nome
+          });
+
+          if (shUpdate.ok) {
+            shopifyPrecosAtualizados++;
+            props['Preço Venda'] = { number: novoVendaPsico };
+            if (novoComparacao != null) {
+              props['Preço Comparação'] = { number: novoComparacao };
+            }
+          } else {
+            shopifyErros++;
+            shopifyFalhas.push({ nome: produto.nome, sku: cod, motivo: shUpdate.motivo });
+          }
+        }
+      }
+
       await atualizarProduto(produto.pageId, props);
 
       if (voltou) {
@@ -361,7 +407,6 @@ async function main() {
         voltouCount++; conta(produto, 'voltou');
 
         // Sincroniza estoque na Shopify (Quantidade ➔ 100)
-        const cod = produto.codigo || extrairCodigo(produto.url);
         const sh = await atualizarEstoqueShopify({ sku: cod, quantidade: 100, produtoNome: produto.nome });
         if (sh.ok) {
           shopifyVoltou++;
@@ -390,6 +435,16 @@ async function main() {
         alvoCount++;
       }
 
+      // Alerta Crítico: Margem de Lucro Baixa
+      const finalVenda = (props['Preço Venda']?.number) ?? produto.precoVenda;
+      if (finalVenda != null && !produto.ignorarMargem) {
+        const margemAtual = finalVenda - price;
+        if (margemAtual < MARGEM_MINIMA_ABS) {
+          log('[ALERTA MARGEM ⚠️]', tag(produto), produto.nome, `— Venda: R$${finalVenda.toFixed(2)}, Custo: R$${price.toFixed(2)}, Margem: R$${margemAtual.toFixed(2)}`);
+          margemAlerts.push({ produto, precoVenda: finalVenda, custo: price, margem: margemAtual, dbNome: labelDb(produto.dbId) });
+        }
+      }
+
       await sleep(150);
 
     } catch (e) {
@@ -405,6 +460,7 @@ async function main() {
     await enviarLoteAlvos(alvoAlerts);
     await enviarLoteEsgotados(esgotadoAlerts);
     await enviarLoteVoltou(restockAlerts);
+    await enviarLoteMargem(margemAlerts);
     await enviarCanario(canarios);
   } catch (e) {
     log('Falha ao enviar alertas em lote:', e.message);
@@ -436,13 +492,13 @@ async function main() {
     ? '\n🐤 Suprimidos (scraper suspeito): ' + suprimidos + ' — ' + canarios.map(c => NOMES[c.fornecedor] || c.fornecedor).join(', ')
     : '';
 
-  const totalShopify = shopifyEsgotados + shopifyVoltou;
+  const totalShopify = shopifyEsgotados + shopifyVoltou + shopifyPrecosAtualizados;
   const detalhesFalhasStr = shopifyFalhas.length > 0
     ? '\n' + shopifyFalhas.map(f => `  • ⚠️ **${f.nome}** (SKU: \`${f.sku}\`) ➔ ${f.motivo}`).join('\n')
     : '';
 
   const linhaShopify = (totalShopify > 0 || shopifyErros > 0)
-    ? `\n🛍️ Shopify: ${totalShopify} produto(s) sincronizado(s) (${shopifyEsgotados} esgotado(s) ➔ 0, ${shopifyVoltou} restabelecido(s) ➔ 100)` + (shopifyErros ? ` · ⚠️ ${shopifyErros} falha(s)` + detalhesFalhasStr : '')
+    ? `\n🛍️ Shopify: ${totalShopify} produto(s) sincronizado(s) (${shopifyEsgotados} esgotado ➔ 0, ${shopifyVoltou} restock ➔ 100, ${shopifyPrecosAtualizados} preços atualizados)` + (shopifyErros ? ` · ⚠️ ${shopifyErros} falha(s)` + detalhesFalhasStr : '')
     : '';
 
   const totais =

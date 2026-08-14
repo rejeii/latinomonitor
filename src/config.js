@@ -23,6 +23,12 @@ export const DISCORD_WEBHOOK_ESGOTADOS =
 // Webhook opcional para avisar que o monitoramento começou
 export const DISCORD_WEBHOOK_INICIO = process.env.DISCORD_WEBHOOK_INICIO || '';
 
+// Webhook opcional para alertas de urgência (ex: margem baixa). Cai no de preços se vazio.
+export const DISCORD_WEBHOOK_URGENCIAS = process.env.DISCORD_WEBHOOK_URGENCIAS || DISCORD_WEBHOOK_PRECOS;
+
+// Regra de Margem Baixa Absoluta (alerta se a diferença entre Venda e Custo for menor que esse valor)
+export const MARGEM_MINIMA_ABS = Number(process.env.MARGEM_MINIMA_ABS || 100);
+
 // Disparo do alerta de preço (R$ absolutos, com faixa por valor do produto):
 //   produto <= PRICE_HIGH_LEVEL  → alerta se variar >= PRICE_THRESHOLD       (R$15)
 //   produto  > PRICE_HIGH_LEVEL  → alerta se variar >= PRICE_THRESHOLD_HIGH  (R$20)

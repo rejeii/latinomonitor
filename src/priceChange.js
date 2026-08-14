@@ -54,3 +54,20 @@ export function calcPriceChange(newPrice, custoRef) {
 
   return { triggered, delta, props };
 }
+
+// Calcula o preço "psicológico/bonito" arredondando para cima
+// até o próximo múltiplo de 10 e subtraindo 0.10 (terminação em .90).
+export function calcularPrecoPsicologico(preco) {
+  if (!preco || preco <= 0) return preco;
+  return Math.round((Math.ceil(preco / 10) * 10 - 0.10) * 100) / 100;
+}
+
+// Calcula o novo "Preço de comparação" mantendo o percentual de desconto
+export function calcularPrecoComparacao(precoAntigo, compAntigo, precoNovo) {
+  if (!precoAntigo || !compAntigo || !precoNovo || compAntigo <= precoAntigo) {
+    return null; // Sem desconto válido ou valores inválidos
+  }
+  const proporcao = compAntigo / precoAntigo;
+  const compNovoCru = precoNovo * proporcao;
+  return calcularPrecoPsicologico(compNovoCru);
+}

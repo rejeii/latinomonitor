@@ -69,6 +69,9 @@ export async function buscarProdutos() {
         const precoAlvo  = props['Preço Alvo']?.number ?? null;
         const pausado    = props['Pausado']?.checkbox === true;
         const alvoAtingido = props['Alvo Atingido']?.checkbox === true;
+        const precoVenda = props['Preço Venda']?.number ?? null;
+        const precoComparacao = props['Preço Comparação']?.number ?? null;
+        const ignorarMargem = props['Ignorar Margem']?.checkbox === true;
         const fornecedor = detectarFornecedor(url);
 
         const codigo     = props['Código']?.rich_text?.[0]?.plain_text ||
@@ -81,7 +84,7 @@ export async function buscarProdutos() {
 
         if (!url || !fornecedor) continue;
 
-        produtos.push({ pageId: page.id, nome, url, codigo, custoAtual, custoRef, menorPreco, hist30, status, precoAlvo, pausado, alvoAtingido, fornecedor, dbId });
+        produtos.push({ pageId: page.id, nome, url, codigo, custoAtual, custoRef, menorPreco, hist30, status, precoAlvo, pausado, alvoAtingido, fornecedor, dbId, precoVenda, precoComparacao, ignorarMargem });
       }
 
 
@@ -113,6 +116,9 @@ const SCHEMA_MONITOR = {
   'Preço Alvo':       { number: { format: 'real' } },
   'Pausado':          { checkbox: {} },
   'Alvo Atingido':    { checkbox: {} },
+  'Preço Venda':      { number: { format: 'real' } },
+  'Preço Comparação': { number: { format: 'real' } },
+  'Ignorar Margem':   { checkbox: {} },
 };
 
 // Pega o nome de cada database E garante que TODOS os campos do monitor existam

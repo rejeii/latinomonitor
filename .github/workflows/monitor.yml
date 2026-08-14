@@ -39,9 +39,11 @@ jobs:
           DISCORD_WEBHOOK_ESGOTADOS: ${{ secrets.DISCORD_WEBHOOK_ESGOTADOS }}
           DISCORD_WEBHOOK_INICIO:    ${{ secrets.DISCORD_WEBHOOK_INICIO }}
           DISCORD_WEBHOOK_ERROS:     ${{ secrets.DISCORD_WEBHOOK_ERROS }}
+          DISCORD_WEBHOOK_URGENCIAS: ${{ secrets.DISCORD_WEBHOOK_URGENCIAS }}
           PRICE_THRESHOLD:           ${{ vars.PRICE_THRESHOLD }}
           PRICE_THRESHOLD_HIGH:      ${{ vars.PRICE_THRESHOLD_HIGH }}
           PRICE_HIGH_LEVEL:          ${{ vars.PRICE_HIGH_LEVEL }}
+          MARGEM_MINIMA_ABS:         ${{ vars.MARGEM_MINIMA_ABS }}
           ACTIONS_LIMIT_MIN:         ${{ vars.ACTIONS_LIMIT_MIN }}
           ACTIONS_ALERT_PCT:         ${{ vars.ACTIONS_ALERT_PCT }}
           SHOPIFY_DOMAIN:            ${{ secrets.SHOPIFY_DOMAIN || 'latinogg.myshopify.com' }}
