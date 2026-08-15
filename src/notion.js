@@ -71,7 +71,7 @@ export async function buscarProdutos() {
         const alvoAtingido = props['Alvo Atingido']?.checkbox === true;
         const precoVenda = props['Preço Venda']?.number ?? null;
         const precoComparacao = props['Preço Comparação']?.number ?? null;
-        const ignorarMargem = props['Ignorar Margem']?.checkbox === true;
+        const ignorarMargem = props['Ignorar Margem']?.checkbox === true || props['Ignorar margem']?.checkbox === true;
         const fornecedor = detectarFornecedor(url);
 
         const codigo     = props['Código']?.rich_text?.[0]?.plain_text ||
