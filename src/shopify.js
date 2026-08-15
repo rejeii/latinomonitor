@@ -84,7 +84,7 @@ export async function buscarPrecosShopify(sku) {
               compareAtPrice
               inventoryItem {
                 id
-                cost
+                unitCost { amount }
               }
             }
           }
@@ -108,7 +108,7 @@ export async function buscarPrecosShopify(sku) {
           inventoryItemId: match.node.inventoryItem?.id,
           price: parseFloat(match.node.price) || 0,
           compareAtPrice: parseFloat(match.node.compareAtPrice) || null,
-          cost: parseFloat(match.node.inventoryItem?.cost) || null,
+          cost: parseFloat(match.node.inventoryItem?.unitCost?.amount) || null,
         };
       }
     }
