@@ -358,17 +358,19 @@ async function main() {
       // ── Sincronização Dinâmica de Preços com a Shopify ──
       const cod = produto.codigo || extrairCodigo(produto.url);
       if (cod) {
-        if (produto.precoVenda == null) {
-          // 1ª run (campo vazio no Notion): Busca os valores reais da Shopify para servir de base
-          const shPrecos = await buscarPrecosShopify(cod);
-          if (shPrecos) {
+        // ALWAYS fetch the latest from Shopify so manual edits in Shopify become the source of truth
+        const shPrecos = await buscarPrecosShopify(cod).catch(() => null);
+        
+        if (shPrecos) {
+          // If the user manually edited the price in Shopify (or it's the 1ª run), sync it BACK to Notion!
+          if (produto.precoVenda !== shPrecos.price) {
             props['Preço Venda'] = { number: shPrecos.price };
-            if (shPrecos.compareAtPrice != null) {
-              props['Preço Comparação'] = { number: shPrecos.compareAtPrice };
-            }
             produto.precoVenda = shPrecos.price;
+          }
+          if (produto.precoComparacao !== shPrecos.compareAtPrice) {
+            // Null clears the field in Notion
+            props['Preço Comparação'] = { number: shPrecos.compareAtPrice };
             produto.precoComparacao = shPrecos.compareAtPrice;
-            log('[PREÇO SHOPIFY] Lidos na 1ª run para', produto.nome, `— Venda: R$${shPrecos.price}`);
           }
         }
         
@@ -389,8 +391,10 @@ async function main() {
           if (shUpdate.ok) {
             shopifyPrecosAtualizados++;
             props['Preço Venda'] = { number: novoVendaPsico };
+            produto.precoVenda = novoVendaPsico;
             if (novoComparacao != null) {
               props['Preço Comparação'] = { number: novoComparacao };
+              produto.precoComparacao = novoComparacao;
             }
           } else {
             shopifyErros++;
