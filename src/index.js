@@ -14,7 +14,7 @@ import { buscarProdutos, atualizarProduto, prepararDatabases, prepararErrorDb, r
 import { scrapeProduto, resultadoRuim } from './scrapers.js';
 import { calcPriceChange, calcAlvo, calcularPrecoPsicologico, calcularPrecoComparacao } from './priceChange.js';
 import { diaSP, parseHist, serializeHist } from './history.js';
-import { enviarLotePrecos, enviarLoteAlvos, enviarLoteEsgotados, enviarLoteVoltou, enviarLoteMargem, enviarResumo, enviarErro, enviarInicio, enviarAvisoCampos, enviarCanario, enviarAvisoUso, enviarRelatorioErros, extrairCodigo, NOMES } from './discord.js';
+import { enviarLotePrecos, enviarLoteAlvos, enviarLoteEsgotados, enviarLoteVoltou, enviarLoteMargem, enviarLoteShopifyAtualizados, enviarResumo, enviarErro, enviarInicio, enviarAvisoCampos, enviarCanario, enviarAvisoUso, enviarRelatorioErros, extrairCodigo, NOMES } from './discord.js';
 import { DELAY_MS, NAV_TIMEOUT_MS, SCRAPE_CONCURRENCY, RETRY_COOLDOWN_MS, PRICE_THRESHOLD, PRICE_THRESHOLD_HIGH, PRICE_HIGH_LEVEL, CANARY_RATIO, CANARY_MIN, ACTIONS_ALERT_PCT, NOTION_ERROR_DB_ID, MARGEM_MINIMA_ABS } from './config.js';
 import { checarUsoActions } from './usage.js';
 import { atualizarEstoqueShopify, buscarPrecosShopify, atualizarPrecosShopify } from './shopify.js';
@@ -232,6 +232,7 @@ async function main() {
   const esgotadoAlerts = [];
   const restockAlerts  = [];
   const margemAlerts   = [];
+  const shopifyUpdateAlerts = [];
 
   const stats   = {};
   const statsDb = {};
@@ -396,6 +397,7 @@ async function main() {
               props['Preço Comparação'] = { number: novoComparacao };
               produto.precoComparacao = novoComparacao;
             }
+            shopifyUpdateAlerts.push({ produto, precoVenda: novoVendaPsico, precoComparacao: novoComparacao });
           } else {
             shopifyErros++;
             shopifyFalhas.push({ nome: produto.nome, sku: cod, motivo: shUpdate.motivo });
@@ -465,6 +467,7 @@ async function main() {
     await enviarLoteEsgotados(esgotadoAlerts);
     await enviarLoteVoltou(restockAlerts);
     await enviarLoteMargem(margemAlerts);
+    await enviarLoteShopifyAtualizados(shopifyUpdateAlerts);
     await enviarCanario(canarios);
   } catch (e) {
     log('Falha ao enviar alertas em lote:', e.message);

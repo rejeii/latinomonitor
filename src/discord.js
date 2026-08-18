@@ -198,6 +198,37 @@ export async function enviarLoteMargem(items) {
   await postEmbeds(DISCORD_WEBHOOK_URGENCIAS, items.map(i => embedMargem(i.produto, i.precoVenda, i.custo, i.margem, i.dbNome)));
 }
 
+// items: [{ produto, precoVenda, precoComparacao }]
+function embedShopifyUpdate(item) {
+  const { produto, precoVenda, precoComparacao } = item;
+  const cod = produto.codigo || extrairCodigo(produto.url) || 'S/N';
+  const forn = NOMES[produto.fornecedor] || produto.fornecedor;
+  const fields = [
+    { name: 'Código / SKU', value: String(cod), inline: true },
+    { name: '​', value: '​', inline: true },
+    { name: '​', value: '​', inline: true },
+    { name: 'Novo Preço Venda', value: brl(precoVenda), inline: true },
+  ];
+  if (precoComparacao != null) {
+    fields.push({ name: 'Preço Comparação', value: brl(precoComparacao), inline: true });
+  }
+
+  return {
+    title:       '🛍️  Preço Atualizado na Shopify',
+    color:       16753920, // Laranja (FFA500)
+    url:         produto.url,
+    description: `**${produto.nome}**\n*${forn}*`,
+    fields,
+    footer: { text: 'LatinoGG Monitor · ' + agora() },
+  };
+}
+
+export async function enviarLoteShopifyAtualizados(items) {
+  if (!items.length) return;
+  // Envia no mesmo webhook de preços
+  await postEmbeds(DISCORD_WEBHOOK_PRECOS, items.map(embedShopifyUpdate));
+}
+
 // items: [{ produto, preco, dbNome }]
 export async function enviarLoteAlvos(items) {
   if (!items.length) return;
