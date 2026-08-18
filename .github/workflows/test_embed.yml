@@ -1,0 +1,46 @@
+name: Test Discord Embed
+on: [push]
+
+jobs:
+  test_embed:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Test Discord Embed
+        env:
+          DISCORD_WEBHOOK_PRECOS: ${{ secrets.DISCORD_WEBHOOK_PRECOS }}
+        run: |
+          cat << 'EOF' > test_discord.js
+          const webhook = process.env.DISCORD_WEBHOOK_PRECOS;
+          if (!webhook) {
+            console.error('Webhook not found');
+            process.exit(1);
+          }
+
+          const embed = {
+            title: '🛍️  Preço Atualizado na Shopify',
+            color: 16753920, // Laranja (FFA500)
+            url: 'https://visaovip.com/prod/123456789',
+            description: '**[TESTE] Fone de Ouvido JBL Endurance Race 2 Waterproof TWS / Bluetooth - Branco**\n*VisãoVip*',
+            fields: [
+              { name: 'Código / SKU', value: '123456789', inline: true },
+              { name: '\u200B', value: '\u200B', inline: true },
+              { name: '\u200B', value: '\u200B', inline: true },
+              { name: 'Novo Preço Venda', value: 'R$ 359,99', inline: true },
+              { name: 'Preço Comparação', value: 'R$ 419,99', inline: true }
+            ],
+            footer: { text: 'LatinoGG Monitor · ' + new Date().toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo' }) }
+          };
+
+          fetch(webhook, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ embeds: [embed] })
+          }).then(res => {
+            if (res.ok) console.log('Embed sent successfully!');
+            else console.error('Failed to send:', res.status);
+          });
+          EOF
+          node test_discord.js
