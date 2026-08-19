@@ -82,6 +82,7 @@ export async function buscarPrecosShopify(sku) {
               sku
               price
               compareAtPrice
+              product { id }
               inventoryItem {
                 id
                 unitCost { amount }
@@ -105,6 +106,7 @@ export async function buscarPrecosShopify(sku) {
       if (match?.node) {
         return {
           variantId: match.node.id,
+          productId: match.node.product?.id,
           inventoryItemId: match.node.inventoryItem?.id,
           price: parseFloat(match.node.price) || 0,
           compareAtPrice: parseFloat(match.node.compareAtPrice) || null,
@@ -131,35 +133,47 @@ export async function atualizarPrecosShopify({ sku, precoVenda, precoComparacao,
       return { ok: false, motivo: 'SKU não encontrado na Shopify' };
     }
 
-    const { variantId, inventoryItemId } = dados;
+    const { variantId, productId, inventoryItemId } = dados;
 
     // 1. Atualizar Variant (price, compareAtPrice)
     const variantQuery = `
-      mutation productVariantUpdate($input: ProductVariantInput!) {
-        productVariantUpdate(input: $input) {
+      mutation productVariantsBulkUpdate($productId: ID!, $variants: [ProductVariantsBulkInput!]!) {
+        productVariantsBulkUpdate(productId: $productId, variants: $variants) {
           userErrors { field message }
         }
       }
     `;
-    const variantInput = { id: variantId, price: String(precoVenda) };
-    if (precoComparacao != null) {
-      variantInput.compareAtPrice = String(precoComparacao);
-    }
 
     const resVariant = await fetch(`https://${SHOPIFY_DOMAIN}/admin/api/2024-01/graphql.json`, {
       method: 'POST',
       headers: shopifyHeaders(),
-      body: JSON.stringify({ query: variantQuery, variables: { input: variantInput } }),
+      body: JSON.stringify({
+        query: variantQuery,
+        variables: {
+          productId,
+          variants: [
+            {
+              id: variantId,
+              price: String(precoVenda),
+              compareAtPrice: precoComparacao != null ? String(precoComparacao) : null
+            }
+          ]
+        }
+      }),
     });
-    
+
     let variantOk = false;
     if (resVariant.ok) {
       const json = await resVariant.json();
-      const errs = json?.data?.productVariantUpdate?.userErrors || [];
-      if (errs.length > 0) {
-        log(`[ERRO VARIANT] ${produtoNome}:`, errs.map(e => e.message).join(', '));
+      if (json.errors) {
+        log(`[ERRO GRAPHQL SHOPIFY]`, JSON.stringify(json.errors));
       } else {
-        variantOk = true;
+        const errs = json?.data?.productVariantsBulkUpdate?.userErrors || [];
+        if (errs.length > 0) {
+          log(`Erro ao atualizar preço SKU ${sku}:`, errs.map(e => e.message).join(', '));
+        } else {
+          variantOk = true;
+        }
       }
     }
 
