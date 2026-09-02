@@ -276,10 +276,15 @@ async function main() {
       // ── Esgotado: escreve; alerta e sincroniza Shopify só na transição ──
       if (status === 'Esgotado') {
         esgotadoTot++; conta(produto, 'esgotado');
-        await atualizarProduto(produto.pageId, {
+        const esgProps = {
           'Status': { select: { name: 'Esgotado' } },
           'Data':   { date: { start: new Date().toISOString() } },
-        });
+        };
+        if (r.novaUrl) {
+          esgProps['Produto'] = { url: r.novaUrl };
+          produto.url = r.novaUrl;
+        }
+        await atualizarProduto(produto.pageId, esgProps);
         if (produto.status !== 'Esgotado') {
           log('[ESGOTADO]', tag(produto), produto.nome);
           esgotadoAlerts.push({ produto, dbNome: labelDb(produto.dbId) });
@@ -349,6 +354,10 @@ async function main() {
         'Status':        { select: { name: status } },
         'Alvo Atingido': { checkbox: alvo.atingido },  // false rearma o alerta de alvo
       };
+      if (r.novaUrl) {
+        props['Produto'] = { url: r.novaUrl };
+        produto.url = r.novaUrl;
+      }
       if (change) Object.assign(props, change.props);
       if (voltou) {
         props['Custo Referência'] = { number: price };

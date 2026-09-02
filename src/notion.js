@@ -72,8 +72,8 @@ export async function buscarProdutos() {
         const precoVenda = props['Preço Venda']?.number ?? null;
         const precoComparacao = props['Preço Comparação']?.number ?? null;
         const ignorarMargem = Object.keys(props)
-          .filter(k => k.trim().toLowerCase() === 'ignorar margem')
-          .some(k => props[k]?.checkbox === true);
+          .filter(k => k.toLowerCase().replace(/[^a-z]/g, '') === 'ignorarmargem')
+          .some(k => props[k]?.checkbox);
         const fornecedor = detectarFornecedor(url);
 
         const codigo     = props['Código']?.rich_text?.[0]?.plain_text ||

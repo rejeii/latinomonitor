@@ -158,6 +158,31 @@ export async function scrapeProduto(page, produto) {
     await page.waitForTimeout(700);
   } while (Date.now() < deadline);
 
+  // Auto-recuperação da VisãoVip: se der 404 ou sem preço, busca o código do produto
+  // para descobrir a nova URL canônica (mudança de /produto/:slug/:id para /prod/:cat/:slug/:id/)
+  if (fornecedor === 'visaovip' && (result?.notFound || (!(result?.price > 0) && result?.status !== 'Esgotado'))) {
+    const id = url.match(/\/(\d+)\/?(?:$|[?#])/)?.[1] || produto.codigo;
+    if (id) {
+      try {
+        await page.goto(`https://visaovip.com/busca/termo/${id}/`, { waitUntil: 'domcontentloaded', timeout: 20000 });
+        await page.waitForTimeout(1500);
+        const newUrl = await page.evaluate(() => {
+          const a = document.querySelector('a[href*="/prod/"]');
+          return a ? a.href : null;
+        });
+        if (newUrl && newUrl !== url) {
+          await page.goto(newUrl, { waitUntil: 'domcontentloaded', timeout: 20000 });
+          await page.waitForTimeout(2000);
+          const r2 = await page.evaluate(scrapeInPage, fornecedor);
+          if (r2.price > 0 || r2.status === 'Esgotado') {
+            result = r2;
+            result.novaUrl = newUrl;
+          }
+        }
+      } catch {}
+    }
+  }
+
   return result;
 }
 

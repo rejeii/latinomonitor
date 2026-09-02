@@ -110,9 +110,9 @@ function embedAlvo(item) {
 
 export function extrairCodigo(url) {
   if (!url) return null;
-  const mVisao = url.match(/\/prod\/(\d+)/i);
+  const mVisao = url.match(/\/prod\/(\d+)/i) || url.match(/\/prod\/.*\/(\d+)\/?(?:$|[?#])/i);
   if (mVisao) return mVisao[1];
-  const mColl = url.match(/\/produto\/(\d+)/i);
+  const mColl = url.match(/\/produto\/(\d+)/i) || url.match(/\/produto\/.*\/(\d+)\/?(?:$|[?#])/i);
   if (mColl) return mColl[1];
   const mParam = url.match(/[\?&](?:codigo|sku|id)=(\w+)/i);
   if (mParam) return mParam[1];
