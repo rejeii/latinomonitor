@@ -9,7 +9,7 @@ process.env.NOTION_TOKEN           ||= 'test-token';
 process.env.NOTION_DATABASE_IDS    ||= 'db-teste';
 process.env.DISCORD_WEBHOOK_PRECOS ||= 'https://example.com/webhook';
 
-const { enviarLotePrecos, enviarLoteAlvos, enviarLoteEsgotados, enviarLoteVoltou, extrairCodigo, sparklineUrl, NOMES } = await import('../src/discord.js');
+const { enviarLotePrecos, enviarLoteAlvos, enviarLoteEsgotados, enviarLoteVoltou, enviarLoteUrlIncompativel, extrairCodigo, sparklineUrl, NOMES } = await import('../src/discord.js');
 
 // Captura os POSTs que o módulo faria
 const capturar = () => {
@@ -151,4 +151,34 @@ test('postEmbeds: um 429 do Discord é aguardado e reenviado', async () => {
   };
   await enviarLoteAlvos([{ produto: produtoBase, preco: 100, dbNome: 'X' }]);
   assert.strictEqual(chamada, 2, 'retry único após o 429');
+});
+
+test('enviarLoteUrlIncompativel: envia embed de URL incompatível com status correto', async () => {
+  const posts = capturar();
+  await enviarLoteUrlIncompativel([
+    {
+      produto: produtoBase,
+      urlOriginal: 'https://visaovip.com/prod/placas-de-video-nvidia/rtx5080/50999/',
+      urlId: '50999',
+      targetId: '50839',
+      corrigido: false,
+      novaUrl: null,
+      dbNome: 'Monitores',
+    },
+    {
+      produto: produtoBase,
+      urlOriginal: 'https://visaovip.com/produto/fone/49744',
+      urlId: '49744',
+      targetId: '49744',
+      corrigido: true,
+      novaUrl: 'https://visaovip.com/prod/headset/fone/49744/',
+      dbNome: 'Periféricos',
+    }
+  ]);
+  assert.strictEqual(posts.length, 1);
+  const [e1, e2] = posts[0].body.embeds;
+  assert.strictEqual(e1.title, '🚨  Alerta: URL Incompatível com o SKU');
+  assert.strictEqual(e1.color, 15158332);
+  assert.strictEqual(e2.title, '🔄  URL Divergente Corrigida Automaticamente');
+  assert.strictEqual(e2.color, 3066993);
 });

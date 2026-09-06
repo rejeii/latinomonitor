@@ -14,7 +14,7 @@ import { buscarProdutos, atualizarProduto, prepararDatabases, prepararErrorDb, r
 import { scrapeProduto, resultadoRuim } from './scrapers.js';
 import { calcPriceChange, calcAlvo, calcularPrecoPsicologico, calcularPrecoComparacao } from './priceChange.js';
 import { diaSP, parseHist, serializeHist } from './history.js';
-import { enviarLotePrecos, enviarLoteAlvos, enviarLoteEsgotados, enviarLoteVoltou, enviarLoteMargem, enviarLoteShopifyAtualizados, enviarResumo, enviarErro, enviarInicio, enviarAvisoCampos, enviarCanario, enviarAvisoUso, enviarRelatorioErros, extrairCodigo, NOMES } from './discord.js';
+import { enviarLotePrecos, enviarLoteAlvos, enviarLoteEsgotados, enviarLoteVoltou, enviarLoteMargem, enviarLoteShopifyAtualizados, enviarLoteUrlIncompativel, enviarResumo, enviarErro, enviarInicio, enviarAvisoCampos, enviarCanario, enviarAvisoUso, enviarRelatorioErros, extrairCodigo, NOMES } from './discord.js';
 import { DELAY_MS, NAV_TIMEOUT_MS, SCRAPE_CONCURRENCY, RETRY_COOLDOWN_MS, PRICE_THRESHOLD, PRICE_THRESHOLD_HIGH, PRICE_HIGH_LEVEL, CANARY_RATIO, CANARY_MIN, ACTIONS_ALERT_PCT, NOTION_ERROR_DB_ID, MARGEM_MINIMA_ABS } from './config.js';
 import { checarUsoActions } from './usage.js';
 import { atualizarEstoqueShopify, buscarPrecosShopify, atualizarPrecosShopify } from './shopify.js';
@@ -233,6 +233,7 @@ async function main() {
   const restockAlerts  = [];
   const margemAlerts   = [];
   const shopifyUpdateAlerts = [];
+  const urlMismatchAlerts = [];
 
   const stats   = {};
   const statsDb = {};
@@ -251,6 +252,10 @@ async function main() {
 
     // Canário: não escreve nem alerta o fornecedor suspeito (preserva o Notion)
     if (suspeitos.has(produto.fornecedor)) { suprimidos++; continue; }
+
+    if (r.mismatchInfo) {
+      urlMismatchAlerts.push({ produto, ...r.mismatchInfo, dbNome: labelDb(produto.dbId) });
+    }
 
     try {
       if (r.erro) {
@@ -477,6 +482,7 @@ async function main() {
     await enviarLoteVoltou(restockAlerts);
     await enviarLoteMargem(margemAlerts);
     await enviarLoteShopifyAtualizados(shopifyUpdateAlerts);
+    await enviarLoteUrlIncompativel(urlMismatchAlerts);
     await enviarCanario(canarios);
   } catch (e) {
     log('Falha ao enviar alertas em lote:', e.message);

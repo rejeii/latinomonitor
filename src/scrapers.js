@@ -201,6 +201,18 @@ export async function scrapeProduto(page, produto) {
     }
   }
 
-  return result || { price: 0, status: 'Esgotado', blocked: false, rateLimited: false, usdOnly: false, notFound: true };
+  result ??= { price: 0, status: 'Esgotado', blocked: false, rateLimited: false, usdOnly: false, notFound: true };
+
+  if (urlMismatch) {
+    result.mismatchInfo = {
+      urlOriginal: url,
+      urlId,
+      targetId,
+      corrigido: !!result.novaUrl,
+      novaUrl: result.novaUrl || null,
+    };
+  }
+
+  return result;
 }
 

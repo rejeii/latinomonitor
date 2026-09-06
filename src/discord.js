@@ -198,6 +198,46 @@ export async function enviarLoteMargem(items) {
   await postEmbeds(DISCORD_WEBHOOK_URGENCIAS, items.map(i => embedMargem(i.produto, i.precoVenda, i.custo, i.margem, i.dbNome)));
 }
 
+// items: [{ produto, urlOriginal, urlId, targetId, novaUrl, corrigido, dbNome }]
+function embedUrlIncompativel(item) {
+  const { produto, urlOriginal, urlId, targetId, novaUrl, corrigido, dbNome } = item;
+  const forn = NOMES[produto.fornecedor] || produto.fornecedor;
+  const dbStr = dbNome ? ` [${dbNome}]` : '';
+
+  const fields = [
+    { name: 'Código / SKU (Notion)', value: String(targetId || 'S/N'), inline: true },
+    { name: 'ID no Link Anterior',  value: String(urlId || '—'),       inline: true },
+    { name: 'Status da Correção',   value: corrigido ? '✅ Corrigido no Notion' : '⚠️ Não encontrado (Marcado Esgotado)', inline: true },
+  ];
+
+  if (urlOriginal) {
+    fields.push({ name: 'Link com ID Divergente', value: `[Abrir link anterior](${urlOriginal})`, inline: false });
+  }
+  if (novaUrl) {
+    fields.push({ name: 'Novo Link Atualizado', value: `[Abrir link corrigido](${novaUrl})`, inline: false });
+  }
+
+  return {
+    title: corrigido
+      ? '🔄  URL Divergente Corrigida Automaticamente'
+      : '🚨  Alerta: URL Incompatível com o SKU',
+    color: corrigido ? 3066993 : 15158332,
+    url: novaUrl || urlOriginal || produto.url,
+    description: `**${produto.nome}**\n*${forn}${dbStr}*\n\n` + (corrigido
+      ? `A URL cadastrada continha o ID **${urlId}**, divergente do SKU **${targetId}**. O monitor localizou o produto correto e atualizou o link no Notion.`
+      : `A URL cadastrada continha o ID **${urlId}**, divergente do SKU **${targetId}**. O produto correto não foi encontrado na busca do fornecedor e o item foi protegido (marcado como Esgotado para evitar erros de preço).`),
+    fields,
+    footer: { text: 'LatinoGG Monitor · ' + agora() },
+  };
+}
+
+export async function enviarLoteUrlIncompativel(items) {
+  if (!items.length) return;
+  const webhook = DISCORD_WEBHOOK_URGENCIAS || DISCORD_WEBHOOK_ERROS || DISCORD_WEBHOOK_PRECOS;
+  if (!webhook) return;
+  await postEmbeds(webhook, items.map(embedUrlIncompativel));
+}
+
 // items: [{ produto, precoVenda, precoComparacao }]
 function embedShopifyUpdate(item) {
   const { produto, precoVenda, precoComparacao } = item;
