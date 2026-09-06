@@ -123,54 +123,69 @@ async function tentarClicarTurnstile(page) {
 export async function scrapeProduto(page, produto) {
   const { url, fornecedor } = produto;
 
-  await page.goto(url, { waitUntil: 'domcontentloaded' });
+  const urlId = url?.match(/\/(\d+)\/?(?:$|[?#])/)?.[1];
+  const targetId = produto.codigo || urlId;
 
-  const readySel = READY_SEL[fornecedor];
-  if (readySel) {
-    try {
-      await page.waitForSelector(readySel, { timeout: READY_TIMEOUT_MS });
-    } catch {
-      // segue mesmo assim — pode ser esgotado sem título OU desafio Cloudflare
+  // Se o ID da URL for diferente do SKU cadastrado no Notion, a URL está corrompida
+  // (ex: link de RTX 5080 salvo na linha do Monitor).
+  const urlMismatch = !!(fornecedor === 'visaovip' && produto.codigo && urlId && String(urlId) !== String(produto.codigo));
+
+  let result = null;
+
+  if (!urlMismatch) {
+    await page.goto(url, { waitUntil: 'domcontentloaded' });
+
+    const readySel = READY_SEL[fornecedor];
+    if (readySel) {
+      try {
+        await page.waitForSelector(readySel, { timeout: READY_TIMEOUT_MS });
+      } catch {
+        // segue mesmo assim — pode ser esgotado sem título OU desafio Cloudflare
+      }
     }
+
+    // Polling até o preço aparecer. NÃO desiste no "bloqueado": o desafio da
+    // Cloudflare ("Just a moment") se auto-resolve em alguns segundos num
+    // navegador real — damos tempo (deadline maior) para ele limpar.
+    // Exceção: rate-limit do fornecedor é página estática — esperar não ajuda.
+    let deadline = Date.now() + PRICE_DEADLINE_MS;
+    let vezes404 = 0;
+    let estendido = false;
+    do {
+      await tentarClicarTurnstile(page);
+      result = await page.evaluate(scrapeInPage, fornecedor);
+      if (result.price > 0 || result.status === 'Esgotado' || result.rateLimited) break;
+      // 404 da SPA: 2 leituras seguidas confirmam (1 só pode ser estado
+      // transitório do router antes do produto renderizar). Com o site fora
+      // do ar, cada URL custa ~1,5s em vez do deadline inteiro.
+      if (result.notFound) { if (++vezes404 >= 2) break; }
+      else vezes404 = 0;
+      // Página viva mas só com U$: a conversão pra R$ pode estar a caminho —
+      // estende o deadline UMA vez. Só afeta esse estado raro; página quebrada
+      // de outro jeito continua respeitando o deadline normal.
+      if (result.usdOnly && !estendido) { deadline += USD_EXTRA_MS; estendido = true; }
+      await page.waitForTimeout(700);
+    } while (Date.now() < deadline);
   }
 
-  // Polling até o preço aparecer. NÃO desiste no "bloqueado": o desafio da
-  // Cloudflare ("Just a moment") se auto-resolve em alguns segundos num
-  // navegador real — damos tempo (deadline maior) para ele limpar.
-  // Exceção: rate-limit do fornecedor é página estática — esperar não ajuda.
-  let deadline = Date.now() + PRICE_DEADLINE_MS;
-  let result;
-  let vezes404 = 0;
-  let estendido = false;
-  do {
-    await tentarClicarTurnstile(page);
-    result = await page.evaluate(scrapeInPage, fornecedor);
-    if (result.price > 0 || result.status === 'Esgotado' || result.rateLimited) break;
-    // 404 da SPA: 2 leituras seguidas confirmam (1 só pode ser estado
-    // transitório do router antes do produto renderizar). Com o site fora
-    // do ar, cada URL custa ~1,5s em vez do deadline inteiro.
-    if (result.notFound) { if (++vezes404 >= 2) break; }
-    else vezes404 = 0;
-    // Página viva mas só com U$: a conversão pra R$ pode estar a caminho —
-    // estende o deadline UMA vez. Só afeta esse estado raro; página quebrada
-    // de outro jeito continua respeitando o deadline normal.
-    if (result.usdOnly && !estendido) { deadline += USD_EXTRA_MS; estendido = true; }
-    await page.waitForTimeout(700);
-  } while (Date.now() < deadline);
-
-  // Auto-recuperação da VisãoVip: se der 404 ou sem preço, busca o código do produto
-  // para descobrir a nova URL canônica (mudança de /produto/:slug/:id para /prod/:cat/:slug/:id/)
-  if (fornecedor === 'visaovip' && (result?.notFound || (!(result?.price > 0) && result?.status !== 'Esgotado'))) {
-    const id = url.match(/\/(\d+)\/?(?:$|[?#])/)?.[1] || produto.codigo;
+  // Auto-recuperação da VisãoVip: se a URL for corrompida, der 404 ou vier sem preço,
+  // busca o código exato do produto para descobrir a nova URL canônica.
+  if (fornecedor === 'visaovip' && (urlMismatch || result?.notFound || (!(result?.price > 0) && result?.status !== 'Esgotado'))) {
+    const id = targetId;
     if (id) {
       try {
         await page.goto(`https://visaovip.com/busca/termo/${id}/`, { waitUntil: 'domcontentloaded', timeout: 20000 });
         await page.waitForTimeout(1500);
-        const newUrl = await page.evaluate(() => {
-          const a = document.querySelector('a[href*="/prod/"]');
-          return a ? a.href : null;
-        });
-        if (newUrl && newUrl !== url) {
+        // Exige correspondência EXATA do ID no link para não pegar produtos aleatórios da busca
+        const newUrl = await page.evaluate((exactId) => {
+          const links = [...document.querySelectorAll('a[href*="/prod/"]')].map(a => a.href);
+          return links.find(l => {
+            const m = l.match(/\/(\d+)\/?(?:$|[?#])/);
+            return m && m[1] === String(exactId);
+          }) || null;
+        }, id);
+
+        if (newUrl) {
           await page.goto(newUrl, { waitUntil: 'domcontentloaded', timeout: 20000 });
           await page.waitForTimeout(2000);
           const r2 = await page.evaluate(scrapeInPage, fornecedor);
@@ -178,11 +193,14 @@ export async function scrapeProduto(page, produto) {
             result = r2;
             result.novaUrl = newUrl;
           }
+        } else if (urlMismatch) {
+          // Se a URL estava corrompida e o produto não existe na busca, marca como esgotado
+          result = { price: 0, status: 'Esgotado', blocked: false, rateLimited: false, usdOnly: false, notFound: true };
         }
       } catch {}
     }
   }
 
-  return result;
+  return result || { price: 0, status: 'Esgotado', blocked: false, rateLimited: false, usdOnly: false, notFound: true };
 }
 

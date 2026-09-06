@@ -178,3 +178,38 @@ test('scrapeInPage: VisãoVip com R$ no seletor lê o preço e não marca usdOnl
   assert.strictEqual(r.price, 431.48);
   assert.strictEqual(r.usdOnly, false);
 });
+
+test('scrapeProduto: VisãoVip com URL corrompida rejeita ID diferente na busca e marca esgotado', async () => {
+  const page = {
+    goto: async () => {},
+    waitForTimeout: async () => {},
+    evaluate: async (fn, arg) => {
+      if (typeof fn === 'function') {
+        // Mock do DOM da busca retornando um produto com ID 50999 diferente do alvo 50839
+        globalThis.document = {
+          querySelectorAll: () => [
+            { href: 'https://visaovip.com/prod/placas-de-video-nvidia/rtx5080/50999/' }
+          ]
+        };
+        try {
+          return fn(arg);
+        } finally {
+          delete globalThis.document;
+        }
+      }
+      return { price: 0, status: 'Em estoque', blocked: false, notFound: true };
+    }
+  };
+
+  const r = await scrapeProduto(page, {
+    nome: 'Monitor MSI Pro MP341CQ',
+    url: 'https://visaovip.com/prod/placas-de-video-nvidia/rtx5080/50999/',
+    codigo: '50839',
+    fornecedor: 'visaovip',
+  });
+
+  assert.strictEqual(r.price, 0);
+  assert.strictEqual(r.status, 'Esgotado');
+  assert.strictEqual(r.notFound, true);
+  assert.strictEqual(r.novaUrl, undefined);
+});
