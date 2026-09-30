@@ -1,4 +1,8 @@
-import { NOTION_TOKEN, NOTION_DATABASE_IDS } from '../src/config.js';
+const NOTION_TOKEN = process.env.NOTION_TOKEN;
+const NOTION_DATABASE_IDS = (process.env.NOTION_DATABASE_IDS || '')
+  .split(',')
+  .map(s => s.trim())
+  .filter(Boolean);
 
 async function main() {
   console.log('=== Analisando todos os produtos e links no Notion ===');
