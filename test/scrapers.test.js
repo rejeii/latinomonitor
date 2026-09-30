@@ -79,6 +79,7 @@ test('scrapeProduto: 404 em 2 leituras seguidas encerra sem esperar o deadline',
   const page = fakePage(async () => { chamadas++; return { price: 0, status: 'Em estoque', blocked: false, notFound: true }; });
   const r = await scrapeProduto(page, { url: 'https://www.visaovip.com/prod/x', fornecedor: 'visaovip' });
   assert.strictEqual(r.notFound, true);
+  assert.strictEqual(r.status, 'Esgotado', '404 deve definir status Esgotado');
   assert.strictEqual(chamadas, 2, '2 leituras confirmam o 404 — sem queimar o deadline inteiro');
 });
 
@@ -160,11 +161,12 @@ test('scrapeInPage: VisãoVip só com preço em U$ marca usdOnly (sem converter)
   assert.strictEqual(r.blocked, false);
 });
 
-test('scrapeInPage: página 404 da VisãoVip marca notFound', () => {
+test('scrapeInPage: página 404 da VisãoVip marca notFound e status Esgotado', () => {
   const r = comDocumento(
     { body: { innerText: '404\nNÃO ENCONTRADO\nTente novamente\nParece que não foi encontrado nada nesta página.' } },
     () => scrapeInPage('visaovip'));
   assert.strictEqual(r.notFound, true);
+  assert.strictEqual(r.status, 'Esgotado', '404 deve definir status Esgotado');
   assert.strictEqual(r.price, 0);
   assert.strictEqual(r.blocked, false);
 });
@@ -213,3 +215,25 @@ test('scrapeProduto: VisãoVip com URL corrompida rejeita ID diferente na busca 
   assert.strictEqual(r.notFound, true);
   assert.strictEqual(r.novaUrl, undefined);
 });
+
+test('scrapeProduto: resposta HTTP 404 do servidor marca notFound e status Esgotado', async () => {
+  const page = {
+    goto: async () => ({ status: () => 404 }),
+    waitForSelector: async () => {},
+    waitForTimeout: async () => {},
+    evaluate: async () => ({ price: 0, status: 'Em estoque', blocked: false, notFound: false }),
+    mouse: { click: async () => {} },
+    frames: () => [],
+  };
+
+  const r = await scrapeProduto(page, {
+    nome: 'Produto Inexistente',
+    url: 'https://loja.atacadocollections.com/produto-404',
+    fornecedor: 'atacadocollections',
+  });
+
+  assert.strictEqual(r.notFound, true);
+  assert.strictEqual(r.status, 'Esgotado');
+  assert.strictEqual(r.price, 0);
+});
+

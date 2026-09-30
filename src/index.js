@@ -265,7 +265,14 @@ async function main() {
         continue;
       }
 
-      const { price, status, blocked } = r;
+      const price = r.price;
+      let status = r.status;
+      const blocked = r.blocked;
+
+      // ── Regra de negócio: 404 = fora de estoque (Esgotado) ──
+      if (r.notFound) {
+        status = 'Esgotado';
+      }
 
       // ── Bloqueado (Cloudflare não liberou / fornecedor limitou o ritmo) ──
       if (blocked) {
@@ -278,7 +285,7 @@ async function main() {
         continue;
       }
 
-      // ── Esgotado: escreve; alerta e sincroniza Shopify só na transição ──
+      // ── Esgotado / 404: escreve; alerta e sincroniza Shopify só na transição ──
       if (status === 'Esgotado') {
         esgotadoTot++; conta(produto, 'esgotado');
         const esgProps = {
@@ -291,7 +298,7 @@ async function main() {
         }
         await atualizarProduto(produto.pageId, esgProps);
         if (produto.status !== 'Esgotado') {
-          log('[ESGOTADO]', tag(produto), produto.nome);
+          log(r.notFound ? '[ESGOTADO (404)]' : '[ESGOTADO]', tag(produto), produto.nome);
           esgotadoAlerts.push({ produto, dbNome: labelDb(produto.dbId) });
           esgotadoNovo++; conta(produto, 'esgNovo');
 
@@ -305,22 +312,20 @@ async function main() {
             shopifyFalhas.push({ nome: produto.nome, sku: cod || 'Sem SKU', motivo: sh.motivo });
           }
         } else {
-          log('[esgotado]', tag(produto), produto.nome);
+          log(r.notFound ? '[esgotado (404)]' : '[esgotado]', tag(produto), produto.nome);
         }
         await sleep(150);
         continue;
       }
 
 
-      // ── Sem preço (404 do site, página quebrada, ou só preço em U$) ──
+      // ── Sem preço (página quebrada, ou só preço em U$) ──
       if (!price || price <= 0) {
-        const tipo = r.notFound ? 'Página 404' : r.usdOnly ? 'Preço só em U$' : 'Sem preço';
-        const msg  = r.notFound
-          ? 'Produto não carregou (página 404 do site — URL removida ou instável)'
-          : r.usdOnly
-            ? 'Página carregou só o preço em dólar (a conversão pra R$ não veio)'
-            : 'Não foi possível ler o preço';
-        log(r.notFound ? '[404]' : r.usdOnly ? '[SÓ U$]' : '[SEM PREÇO]', tag(produto), produto.nome);
+        const tipo = r.usdOnly ? 'Preço só em U$' : 'Sem preço';
+        const msg  = r.usdOnly
+          ? 'Página carregou só o preço em dólar (a conversão pra R$ não veio)'
+          : 'Não foi possível ler o preço';
+        log(r.usdOnly ? '[SÓ U$]' : '[SEM PREÇO]', tag(produto), produto.nome);
         erros++; conta(produto, 'erro');
         pushErroProduto(produto, tipo, msg, r);
         continue;

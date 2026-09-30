@@ -63,9 +63,11 @@ export function scrapeInPage(fornecedor) {
     price = extractPrice(el?.innerText || '');
     const esgotadoEl = document.querySelector('.error-border');
     status = price > 0 ? 'Em estoque' : (esgotadoEl ? 'Esgotado' : 'Em estoque');
-    // Página 404 da SPA ("NÃO ENCONTRADO") — o site rende o shell mas o
-    // produto não carrega (instabilidade/queda). Some quando o site volta.
+    // Página 404 da SPA ("NÃO ENCONTRADO") — regra de negócio: 404 = fora de estoque
     notFound = !(price > 0) && /não encontrado/i.test(sample);
+    if (notFound) {
+      status = 'Esgotado';
+    }
     // Página renderizou mas só com o preço em U$ (a conversão pra R$ não
     // carregou — instabilidade do site). Não convertemos por conta própria:
     // a cotação exibida é arredondada e alimentaria o baseline com um valor
@@ -79,7 +81,8 @@ export function scrapeInPage(fornecedor) {
     price = extractPrice(el?.innerText || '');
     const indisponivel = [...document.querySelectorAll('.bg-gray-bg span')]
       .some(e => e.innerText?.trim().toLowerCase() === 'indisponível');
-    status = price > 0 ? 'Em estoque' : (indisponivel ? 'Esgotado' : 'Em estoque');
+    notFound = !(price > 0) && /não encontrado|página não encontrada|404/i.test(sample);
+    status = price > 0 ? 'Em estoque' : ((indisponivel || notFound) ? 'Esgotado' : 'Em estoque');
 
   } else if (fornecedor === 'atacadocollections') {
     const priceEl = [...document.querySelectorAll('div.price')]
@@ -87,7 +90,8 @@ export function scrapeInPage(fornecedor) {
       ?.querySelector('p.title');
     price = extractPrice(priceEl?.innerText?.trim() || '');
     const indisponivel = !!document.querySelector('span.mtag-indisponivel');
-    status = price > 0 ? 'Em estoque' : (indisponivel ? 'Esgotado' : 'Em estoque');
+    notFound = !(price > 0) && /não encontrado|página não encontrada|404/i.test(sample);
+    status = price > 0 ? 'Em estoque' : ((indisponivel || notFound) ? 'Esgotado' : 'Em estoque');
   }
 
   return { price, status, blocked, rateLimited, usdOnly, notFound };
@@ -133,39 +137,46 @@ export async function scrapeProduto(page, produto) {
   let result = null;
 
   if (!urlMismatch) {
-    await page.goto(url, { waitUntil: 'domcontentloaded' });
+    const resp = await page.goto(url, { waitUntil: 'domcontentloaded' }).catch(() => null);
 
-    const readySel = READY_SEL[fornecedor];
-    if (readySel) {
-      try {
-        await page.waitForSelector(readySel, { timeout: READY_TIMEOUT_MS });
-      } catch {
-        // segue mesmo assim — pode ser esgotado sem título OU desafio Cloudflare
-      }
+    // Se o servidor devolver HTTP 404 diretamente
+    if (resp && typeof resp.status === 'function' && resp.status() === 404) {
+      result = { price: 0, status: 'Esgotado', blocked: false, rateLimited: false, usdOnly: false, notFound: true };
     }
 
-    // Polling até o preço aparecer. NÃO desiste no "bloqueado": o desafio da
-    // Cloudflare ("Just a moment") se auto-resolve em alguns segundos num
-    // navegador real — damos tempo (deadline maior) para ele limpar.
-    // Exceção: rate-limit do fornecedor é página estática — esperar não ajuda.
-    let deadline = Date.now() + PRICE_DEADLINE_MS;
-    let vezes404 = 0;
-    let estendido = false;
-    do {
-      await tentarClicarTurnstile(page);
-      result = await page.evaluate(scrapeInPage, fornecedor);
-      if (result.price > 0 || result.status === 'Esgotado' || result.rateLimited) break;
-      // 404 da SPA: 2 leituras seguidas confirmam (1 só pode ser estado
-      // transitório do router antes do produto renderizar). Com o site fora
-      // do ar, cada URL custa ~1,5s em vez do deadline inteiro.
-      if (result.notFound) { if (++vezes404 >= 2) break; }
-      else vezes404 = 0;
-      // Página viva mas só com U$: a conversão pra R$ pode estar a caminho —
-      // estende o deadline UMA vez. Só afeta esse estado raro; página quebrada
-      // de outro jeito continua respeitando o deadline normal.
-      if (result.usdOnly && !estendido) { deadline += USD_EXTRA_MS; estendido = true; }
-      await page.waitForTimeout(700);
-    } while (Date.now() < deadline);
+    if (!result) {
+      const readySel = READY_SEL[fornecedor];
+      if (readySel) {
+        try {
+          await page.waitForSelector(readySel, { timeout: READY_TIMEOUT_MS });
+        } catch {
+          // segue mesmo assim — pode ser esgotado sem título OU desafio Cloudflare
+        }
+      }
+
+      // Polling até o preço aparecer. NÃO desiste no "bloqueado": o desafio da
+      // Cloudflare ("Just a moment") se auto-resolve em alguns segundos num
+      // navegador real — damos tempo (deadline maior) para ele limpar.
+      // Exceção: rate-limit do fornecedor é página estática — esperar não ajuda.
+      let deadline = Date.now() + PRICE_DEADLINE_MS;
+      let vezes404 = 0;
+      let estendido = false;
+      do {
+        await tentarClicarTurnstile(page);
+        result = await page.evaluate(scrapeInPage, fornecedor);
+        if (result.price > 0 || result.status === 'Esgotado' || result.rateLimited) break;
+        // 404 da SPA: 2 leituras seguidas confirmam (1 só pode ser estado
+        // transitório do router antes do produto renderizar). Com o site fora
+        // do ar, cada URL custa ~1,5s em vez do deadline inteiro.
+        if (result.notFound) { if (++vezes404 >= 2) break; }
+        else vezes404 = 0;
+        // Página viva mas só com U$: a conversão pra R$ pode estar a caminho —
+        // estende o deadline UMA vez. Só afeta esse estado raro; página quebrada
+        // de outro jeito continua respeitando o deadline normal.
+        if (result.usdOnly && !estendido) { deadline += USD_EXTRA_MS; estendido = true; }
+        await page.waitForTimeout(700);
+      } while (Date.now() < deadline);
+    }
   }
 
   // Auto-recuperação da VisãoVip: se a URL for corrompida, der 404 ou vier sem preço,
@@ -202,6 +213,11 @@ export async function scrapeProduto(page, produto) {
   }
 
   result ??= { price: 0, status: 'Esgotado', blocked: false, rateLimited: false, usdOnly: false, notFound: true };
+
+  // Regra de negócio: 404 = fora de estoque (Esgotado)
+  if (result.notFound) {
+    result.status = 'Esgotado';
+  }
 
   if (urlMismatch) {
     result.mismatchInfo = {
