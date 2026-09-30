@@ -316,17 +316,11 @@ async function main() {
       if (!price || price <= 0) {
         const tipo = r.notFound ? 'Página 404' : r.usdOnly ? 'Preço só em U$' : 'Sem preço';
         const msg  = r.notFound
-          ? 'Produto não carregou (página 404 do site — URL removida; auto-pausado no Notion)'
+          ? 'Produto não carregou (página 404 do site — URL removida ou instável)'
           : r.usdOnly
             ? 'Página carregou só o preço em dólar (a conversão pra R$ não veio)'
             : 'Não foi possível ler o preço';
-        log(r.notFound ? '[404 AUTO-PAUSADO]' : r.usdOnly ? '[SÓ U$]' : '[SEM PREÇO]', tag(produto), produto.nome);
-        if (r.notFound) {
-          await atualizarProduto(produto.pageId, {
-            'Pausado': { checkbox: true },
-            'Data':    { date: { start: new Date().toISOString() } },
-          }).catch(() => {});
-        }
+        log(r.notFound ? '[404]' : r.usdOnly ? '[SÓ U$]' : '[SEM PREÇO]', tag(produto), produto.nome);
         erros++; conta(produto, 'erro');
         pushErroProduto(produto, tipo, msg, r);
         continue;
