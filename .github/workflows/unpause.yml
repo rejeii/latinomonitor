@@ -21,4 +21,4 @@ jobs:
           NOTION_TOKEN: ${{ secrets.NOTION_TOKEN }}
           NOTION_DATABASE_IDS: ${{ secrets.NOTION_DATABASE_IDS }}
           DISCORD_WEBHOOK_PRECOS: ${{ secrets.DISCORD_WEBHOOK_PRECOS }}
-        run: node scripts/unpause-all.js
+        run: node scripts/debug-databases.js
