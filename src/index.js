@@ -24,9 +24,12 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
 const log   = (...a) => console.log(new Date().toISOString(), ...a);
 const tag   = p => `[${NOMES[p.fornecedor] || p.fornecedor}]`;
 
-// Teto de abas por fornecedor (sobrepõe SCRAPE_CONCURRENCY). Collections usa 1 aba;
-// VisãoVip usa 5 abas em paralelo (aproveita o processador Ryzen 7 5700X e 48GB RAM para velocidade máxima).
-const MAX_ABAS_FORNECEDOR = { atacadocollections: 1, visaovip: 5 };
+// Teto de abas por fornecedor (formação 3 - 1 - 1: VisãoVip: 3, AtacadoConnect: 1, AtacadoCollections: 1)
+const MAX_ABAS_FORNECEDOR = {
+  visaovip:           3,
+  atacadoconnect:     1,
+  atacadocollections: 1,
+};
 
 
 // Falhas SEGUIDAS no retry que indicam site fora do ar → desiste do resto
