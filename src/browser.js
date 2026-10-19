@@ -54,6 +54,11 @@ export async function criarNavegador({ navTimeoutMs } = {}) {
 
   // Intercepta rotas para abortar imagens, mídias e fontes pesadas (acelera 3x e economiza banda)
   await context.route('**/*', (route) => {
+    const reqUrl = route.request().url();
+    // Não aborta recursos do Cloudflare/Turnstile para permitir carregar o desafio
+    if (reqUrl.includes('cloudflare') || reqUrl.includes('turnstile')) {
+      return route.continue();
+    }
     const type = route.request().resourceType();
     if (type === 'image' || type === 'media' || type === 'font') {
       route.abort();

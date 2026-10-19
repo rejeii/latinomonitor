@@ -41,17 +41,17 @@ export function scrapeInPage(fornecedor) {
   };
 
   const bodyText = (document.body && document.body.innerText) || '';
-  const sample = ((document.title || '') + ' ' + bodyText.slice(0, 300));
+  const sample = ((document.title || '') + ' ' + bodyText.slice(0, 2000));
 
   // Rate-limit do próprio fornecedor (Collections): página estática de
   // "requisições fora do normal" — não se resolve sozinha, só revisitando.
   const rateLimited = /requisições fora do normal/i.test(sample);
 
-  // Desafio da Cloudflare — inclui a variante em português ("Executando
-  // verificação de segurança") e a Turnstile ("Verify you are human"),
+  // Desafio da Cloudflare — inclui as variantes em português ("Executando
+  // verificação de segurança", "Verificando se você é humano", "Um momento…") e Turnstile ("Verify you are human"),
   // que apareciam como "Sem preço" por escapar do padrão antigo.
   const blocked = rateLimited ||
-    /just a moment|attention required|verify(ing)? you are human|verificação de segurança|cloudflare/i.test(sample);
+    /just a moment|um momento|attention required|verify(ing)? you are human|verificando se você é humano|verificação de segurança|cloudflare|turnstile/i.test(sample);
 
   let price = 0;
   let status = 'Em estoque';
@@ -64,7 +64,7 @@ export function scrapeInPage(fornecedor) {
     const esgotadoEl = document.querySelector('.error-border');
     status = price > 0 ? 'Em estoque' : (esgotadoEl ? 'Esgotado' : 'Em estoque');
     // Página 404 da SPA ("NÃO ENCONTRADO") — regra de negócio: 404 = fora de estoque
-    notFound = !(price > 0) && /não encontrado/i.test(sample);
+    notFound = !(price > 0) && !blocked && /não encontrado/i.test(sample);
     if (notFound) {
       status = 'Esgotado';
     }
@@ -81,7 +81,7 @@ export function scrapeInPage(fornecedor) {
     price = extractPrice(el?.innerText || '');
     const indisponivel = [...document.querySelectorAll('.bg-gray-bg span')]
       .some(e => e.innerText?.trim().toLowerCase() === 'indisponível');
-    notFound = !(price > 0) && /não encontrado|página não encontrada|404/i.test(sample);
+    notFound = !(price > 0) && !blocked && /não encontrado|página não encontrada|404/i.test(sample);
     status = price > 0 ? 'Em estoque' : ((indisponivel || notFound) ? 'Esgotado' : 'Em estoque');
 
   } else if (fornecedor === 'atacadocollections') {
@@ -90,7 +90,7 @@ export function scrapeInPage(fornecedor) {
       ?.querySelector('p.title');
     price = extractPrice(priceEl?.innerText?.trim() || '');
     const indisponivel = !!document.querySelector('span.mtag-indisponivel');
-    notFound = !(price > 0) && /não encontrado|página não encontrada|404/i.test(sample);
+    notFound = !(price > 0) && !blocked && /não encontrado|página não encontrada|404/i.test(sample);
     status = price > 0 ? 'Em estoque' : ((indisponivel || notFound) ? 'Esgotado' : 'Em estoque');
   }
 
@@ -111,11 +111,22 @@ async function tentarClicarTurnstile(page) {
     for (const frame of page.frames()) {
       const u = frame.url();
       if (u.includes('challenges.cloudflare.com') || u.includes('turnstile')) {
+        // Se já tentou clicar recentemente nesta página, aguarda a verificação processar antes de novo clique
+        if (page._turnstileClickedAt && (Date.now() - page._turnstileClickedAt) < 8000) {
+          return;
+        }
         const frameEl = await frame.frameElement();
         const box = await frameEl?.boundingBox();
         if (box && box.width > 0 && box.height > 0) {
-          // Clica no centro da área do checkbox à esquerda do widget Turnstile
-          await page.mouse.click(box.x + 30, box.y + box.height / 2).catch(() => {});
+          page._turnstileClickedAt = Date.now();
+          const targetX = Math.round(box.x + 28);
+          const targetY = Math.round(box.y + box.height / 2);
+          // Movimento suave com steps para simular interação humana real
+          await page.mouse.move(targetX, targetY, { steps: 8 }).catch(() => {});
+          await page.waitForTimeout(100);
+          await page.mouse.down().catch(() => {});
+          await page.waitForTimeout(100);
+          await page.mouse.up().catch(() => {});
         }
       }
     }

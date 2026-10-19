@@ -203,8 +203,12 @@ async function main() {
   const bruto = {};
   for (const r of resultados) {
     const f = r.produto.fornecedor;
-    (bruto[f] ??= { total: 0, ruins: 0 }).total++;
-    if (r.erro || !(r.price > 0)) bruto[f].ruins++;   // esgotado/sem-preço/bloqueado/erro
+    (bruto[f] ??= { total: 0, ruins: 0, bloqueados: 0, erros: 0 }).total++;
+    if (r.erro || !(r.price > 0)) {
+      bruto[f].ruins++;
+      if (r.blocked) bruto[f].bloqueados++;
+      if (r.erro) bruto[f].erros++;
+    }
   }
   const suspeitos = new Set();
   const canarios  = [];
@@ -212,16 +216,17 @@ async function main() {
     const pct = b.total ? b.ruins / b.total : 0;
     if (b.total >= CANARY_MIN && pct >= CANARY_RATIO) {
       suspeitos.add(f);
-      canarios.push({ fornecedor: f, total: b.total, ruins: b.ruins, pct });
+      canarios.push({ fornecedor: f, total: b.total, ruins: b.ruins, bloqueados: b.bloqueados, erros: b.erros, pct });
     }
   }
   for (const c of canarios) {
     const fn = NOMES[c.fornecedor] || c.fornecedor;
-    log(`[CANÁRIO] ${fn}: ${c.ruins}/${c.total} sem preço (${Math.round(c.pct * 100)}%) → SUPRIMIDO`);
+    const motivoLog = c.bloqueados >= c.ruins * 0.5 ? 'bloqueados (Cloudflare)' : 'sem preço';
+    log(`[CANÁRIO] ${fn}: ${c.ruins}/${c.total} ${motivoLog} (${Math.round(c.pct * 100)}%) → SUPRIMIDO`);
     errosDetalhe.push({
       nome: `Scraper suspeito — ${fn}`, url: null, fornecedor: fn, database: null,
       tipo: 'Scraper suspeito',
-      mensagem: `${c.ruins}/${c.total} produtos sem preço (${Math.round(c.pct * 100)}%) — alertas e escritas suprimidos`,
+      mensagem: `${c.ruins}/${c.total} produtos ${motivoLog} (${Math.round(c.pct * 100)}%) — alertas e escritas suprimidos`,
       statusLido: null, precoLido: null, pageId: null,
     });
   }

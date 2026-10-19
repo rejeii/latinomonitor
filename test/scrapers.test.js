@@ -137,6 +137,33 @@ test('scrapeInPage: desafio da Cloudflare em português é Bloqueado (não "Sem 
   assert.strictEqual(r.rateLimited, false);
 });
 
+test('scrapeInPage: Cloudflare "Um momento…" e "Verificando se você é humano" é Bloqueado', () => {
+  const r = comDocumento(
+    {
+      title: 'Um momento…',
+      body: { innerText: 'www.atacadocollections.com\nVerificando se você é humano. Isso pode levar alguns segundos.\nEste site utiliza um serviço de segurança.' }
+    },
+    () => scrapeInPage('atacadocollections'));
+  assert.strictEqual(r.blocked, true);
+  assert.strictEqual(r.notFound, false);
+});
+
+test('scrapeInPage: Cloudflare no rodapé além de 300 caracteres é detectado pela amostra de 2000 chars', () => {
+  const padding = 'x'.repeat(400);
+  const r = comDocumento(
+    { body: { innerText: `Texto genérico ${padding} Desempenho e segurança da Cloudflare` } },
+    () => scrapeInPage('atacadocollections'));
+  assert.strictEqual(r.blocked, true);
+});
+
+test('scrapeInPage: página bloqueada não marca notFound mesmo se contiver termo 404', () => {
+  const r = comDocumento(
+    { body: { innerText: 'Ray ID: 404abc123\nVerificando se você é humano. Isso pode levar alguns segundos.' } },
+    () => scrapeInPage('atacadocollections'));
+  assert.strictEqual(r.blocked, true);
+  assert.strictEqual(r.notFound, false);
+});
+
 test('scrapeInPage: Turnstile ("Verify you are human") é Bloqueado', () => {
   const r = comDocumento(
     { body: { innerText: 'Verify you are human' } },

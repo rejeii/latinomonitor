@@ -336,12 +336,26 @@ export async function enviarRelatorioErros(erros) {
 export async function enviarCanario(canarios) {
   if (!canarios || !canarios.length) return;
   const desc = canarios
-    .map(c => `🚨 **${NOMES[c.fornecedor] || c.fornecedor}**: ${c.ruins}/${c.total} sem preço (${Math.round(c.pct * 100)}%) — alertas e atualizações **suprimidos**`)
+    .map(c => {
+      const forn = NOMES[c.fornecedor] || c.fornecedor;
+      const motivo = (c.bloqueados && c.bloqueados >= c.ruins * 0.5)
+        ? `${c.ruins}/${c.total} bloqueados por Cloudflare/segurança`
+        : `${c.ruins}/${c.total} sem preço`;
+      return `🚨 **${forn}**: ${motivo} (${Math.round(c.pct * 100)}%) — alertas e atualizações **suprimidos**`;
+    })
     .join('\n');
+  const temCloudflare = canarios.some(c => c.bloqueados && c.bloqueados >= c.ruins * 0.5);
+  const titulo = temCloudflare
+    ? '🚨  ALERTA DE SEGURANÇA: Bloqueio Cloudflare no Fornecedor'
+    : '🚨  ALERTA DE EMERGÊNCIA: Scraper possivelmente quebrado';
+  const aviso = temCloudflare
+    ? '**Atenção**: O fornecedor ativou desafio do Cloudflare (Turnstile/Managed Challenge). O sistema canário acionou o disjuntor de segurança e todas as atualizações no Notion e Shopify foram **100% suprimidas** para proteger os dados da loja.'
+    : '**Atenção**: Provável mudança no layout do site do fornecedor ou bloqueio severo. Todas as atualizações foram **suprimidas automaticamente** para evitar dados incorretos.';
+
   const embed = {
-    title:       '🚨  ALERTA DE EMERGÊNCIA: Scraper possivelmente quebrado',
+    title:       titulo,
     color:       15158332, // vermelho
-    description: desc + '\n\n**Atenção**: Provável mudança no layout do site do fornecedor ou bloqueio severo. Verifique o scraper imediatamente.',
+    description: desc + '\n\n' + aviso,
     footer:      { text: 'LatinoGG Monitor · ' + agora() },
   };
   const webhook = DISCORD_WEBHOOK_ERROS || DISCORD_WEBHOOK_INICIO || DISCORD_WEBHOOK_PRECOS;
