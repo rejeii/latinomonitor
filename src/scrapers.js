@@ -80,8 +80,9 @@ export function scrapeInPage(fornecedor) {
       .find(e => e.innerText.includes('R$'));
     price = extractPrice(el?.innerText || '');
     const indisponivel = [...document.querySelectorAll('.bg-gray-bg span')]
-      .some(e => e.innerText?.trim().toLowerCase() === 'indisponível');
-    notFound = !(price > 0) && !blocked && /não encontrado|página não encontrada|404/i.test(sample);
+      .some(e => e.innerText?.trim().toLowerCase() === 'indisponível') ||
+      /produto não disponível|removido do nosso catálogo/i.test(sample);
+    notFound = !(price > 0) && !blocked && /não encontrado|página não encontrada|404|produto não disponível|removido do nosso catálogo/i.test(sample);
     status = price > 0 ? 'Em estoque' : ((indisponivel || notFound) ? 'Esgotado' : 'Em estoque');
 
   } else if (fornecedor === 'atacadocollections') {
@@ -174,7 +175,11 @@ export async function scrapeProduto(page, produto) {
       let estendido = false;
       do {
         await tentarClicarTurnstile(page);
-        result = await page.evaluate(scrapeInPage, fornecedor);
+        result = await page.evaluate(scrapeInPage, fornecedor).catch(() => null);
+        if (!result) {
+          await page.waitForTimeout(700);
+          continue;
+        }
         if (result.price > 0 || result.status === 'Esgotado' || result.rateLimited) break;
         // 404 da SPA: 2 leituras seguidas confirmam (1 só pode ser estado
         // transitório do router antes do produto renderizar). Com o site fora

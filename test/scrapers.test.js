@@ -171,6 +171,15 @@ test('scrapeInPage: Turnstile ("Verify you are human") é Bloqueado', () => {
   assert.strictEqual(r.blocked, true);
 });
 
+test('scrapeInPage: AtacadoConnect produto removido do catálogo marca notFound e status Esgotado', () => {
+  const r = comDocumento(
+    { body: { innerText: 'Produto não disponível\nEste produto foi removido do nosso catálogo.\nIr para a página inicial' } },
+    () => scrapeInPage('atacadoconnect'));
+  assert.strictEqual(r.notFound, true);
+  assert.strictEqual(r.status, 'Esgotado');
+  assert.strictEqual(r.price, 0);
+});
+
 test('scrapeInPage: rate-limit da Collections vira blocked + rateLimited', () => {
   const r = comDocumento(
     { body: { innerText: 'Ops, você fez requisições fora do normal.\n— Volte acessar novamente em alguns minutos.' } },
