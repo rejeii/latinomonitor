@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         LatinoGo
 // @namespace    http://tampermonkey.net/
-// @version      38.0.0
+// @version      38.0.1
 // @description  Sincroniza produtos (VisãoVip, AtacadoConnect, AtacadoCollections) + Radar GG nas buscas para meu Amor <3
 // @icon         https://cdn.discordapp.com/attachments/1407825836350115985/1512530057074049124/faviconretina.png?ex=6a246ce3&is=6a231b63&hm=f62ec4a7848f0c5e9f1563cc3ee830b88cbff237f86e2543f9c1747cc0243c5f&
 // @match        https://www.visaovip.com/*
@@ -35,6 +35,7 @@ const IMG_LIMIT      = 15;
 const OBS_TIMEOUT_MS     = 15000;
 const VV_IMG_TIMEOUT_MS  = 10000;
 const CATALOG_CACHE_TTL  = 60 * 60 * 1000; // 1 hora
+const RADAR_YELLOW_DB_ID = '3921a1b9d046807d85c0cb40ee38070b'; // Tabela "Adicionar" (destaque amarelo)
 
 const DEFAULT_CATEGORIES = [
     'Air Cooler','Cadeira Gamer','Caixa de Som','Console','Controle','Cooler',
@@ -1143,7 +1144,12 @@ function injectCSS() {
 .ns-gg-card-badge-label{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:#e8ffe9}
 .ns-gg-card-badge.is-paused{border-color:#ffaa33}
 .ns-gg-card-badge.is-paused .ns-gg-card-badge-label{color:#ffd699}
+.ns-gg-card-badge.is-yellow{border-color:#ffcc00}
+.ns-gg-card-badge.is-yellow:hover{box-shadow:0 4px 14px rgba(255,204,0,.4)}
+.ns-gg-card-badge.is-yellow .ns-gg-card-badge-label{color:#ffe680}
+.ns-gg-card-badge.is-yellow svg path{fill:#ffcc00}
 .ns-gg-card-highlight{box-shadow:inset 0 0 0 2px rgba(38,240,58,.55)!important}
+.ns-gg-card-highlight-yellow{box-shadow:inset 0 0 0 2px rgba(255,204,0,.7)!important}
 /* Pill flutuante discreta nas páginas de listagem */
 #ns-radar-pill{position:fixed;bottom:16px;right:16px;z-index:999990;display:inline-flex;align-items:center;gap:8px;padding:7px 12px;background:rgba(15,15,15,.94);color:#e8e8e8;border:1px solid #2a2a2a;border-left:3px solid #26F03A;border-radius:99px;font-family:'Segoe UI',sans-serif;font-size:11px;font-weight:600;box-shadow:0 6px 20px rgba(0,0,0,.5);backdrop-filter:blur(6px);user-select:none}
 #ns-radar-pill svg{width:20px;height:12px;flex-shrink:0;display:block}
@@ -2250,6 +2256,7 @@ function initPanel(activeSite) {
                 addProductToCatalogCache({
                     sku: skuToNumber(ctx.product.sku),
                     url: window.location.href,
+                    dbId: db.notionDbId,
                     dbName: db.name,
                     pageUrl: ctx.existingPage.url || `https://notion.so/${ctx.existingPage.id.replace(/-/g, '')}`,
                     name: ctx.product.name,
@@ -2273,6 +2280,7 @@ function initPanel(activeSite) {
                 addProductToCatalogCache({
                     sku: skuToNumber(ctx.product.sku),
                     url: window.location.href,
+                    dbId: db.notionDbId,
                     dbName: db.name,
                     pageUrl: json.url || `https://notion.so/${json.id.replace(/-/g, '')}`,
                     name: ctx.product.name,
@@ -2992,6 +3000,7 @@ async function syncCatalogIndex(onProgress) {
                             if (skuNum === null && !keyObj) continue;
 
                             const entry = {
+                                dbId:    src.notionDbId,
                                 dbName:  src.name,
                                 pageUrl: p.url || `https://notion.so/${p.id.replace(/-/g, '')}`,
                                 name:    props['Nome']?.title?.[0]?.plain_text || '',
@@ -3032,10 +3041,10 @@ async function syncCatalogIndex(onProgress) {
     finally { _catalogSyncPromise = null; }
 }
 
-function addProductToCatalogCache({ sku, url: prodUrl, dbName, pageUrl, name, status, paused }) {
+function addProductToCatalogCache({ sku, url: prodUrl, dbId, dbName, pageUrl, name, status, paused }) {
     const cache = getCatalogCache();
     if (!cache) return;
-    const entry = { dbName, pageUrl, name: name || '', status: status || '', paused: !!paused };
+    const entry = { dbId: dbId || '', dbName, pageUrl, name: name || '', status: status || '', paused: !!paused };
     const keyObj = extractSupplierKey(prodUrl);
     if (sku != null) _pushIndexEntry(cache.bySku, String(sku), entry);
     if (keyObj) {
@@ -3062,7 +3071,9 @@ function lookupInCatalog(cache, provider, id, fallbackSku) {
 
 function clearAllRadarBadges() {
     document.querySelectorAll('.ns-gg-card-badge').forEach(el => el.remove());
-    document.querySelectorAll('.ns-gg-card-highlight').forEach(el => el.classList.remove('ns-gg-card-highlight'));
+    document.querySelectorAll('.ns-gg-card-highlight, .ns-gg-card-highlight-yellow').forEach(el => {
+        el.classList.remove('ns-gg-card-highlight', 'ns-gg-card-highlight-yellow');
+    });
 }
 
 function _detectPageProvider() {
@@ -3147,20 +3158,25 @@ function scanListingCards() {
 
         if (!matches?.length) {
             if (existingBadge) existingBadge.remove();
-            cardEl.classList.remove('ns-gg-card-highlight');
+            cardEl.classList.remove('ns-gg-card-highlight', 'ns-gg-card-highlight-yellow');
             return;
         }
 
         foundCount++;
-        const first    = matches[0];
-        const dbNames  = [...new Set(matches.map(m => m.dbName))];
+        const first     = matches[0];
+        const dbNames   = [...new Set(matches.map(m => m.dbName))];
         const allPaused = matches.every(m => m.paused);
-        const labelTxt = dbNames.length > 1 ? `${dbNames[0]} +${dbNames.length - 1}` : dbNames[0];
-        const tooltip  = matches.map(m =>
+        const isYellow  = matches.some(m =>
+            (m.dbId && m.dbId.replace(/-/g, '').toLowerCase() === RADAR_YELLOW_DB_ID) ||
+            normalizeText(m.dbName) === 'adicionar'
+        );
+        const labelTxt  = dbNames.length > 1 ? `${dbNames[0]} +${dbNames.length - 1}` : dbNames[0];
+        const tooltip   = matches.map(m =>
             `${m.dbName}${m.status ? ' · ' + m.status : ''}${m.paused ? ' (Pausado)' : ''}`
         ).join('\n') + '\nClique para abrir no Notion';
 
-        if (existingBadge && existingBadge.dataset.nsKey === `${id}|${labelTxt}|${allPaused}`) {
+        const stateKey = `${id}|${labelTxt}|${allPaused}|${isYellow}`;
+        if (existingBadge && existingBadge.dataset.nsKey === stateKey) {
             return;
         }
         if (existingBadge) existingBadge.remove();
@@ -3168,11 +3184,12 @@ function scanListingCards() {
         if (getComputedStyle(cardEl).position === 'static') {
             cardEl.style.position = 'relative';
         }
-        cardEl.classList.add('ns-gg-card-highlight');
+        cardEl.classList.remove('ns-gg-card-highlight', 'ns-gg-card-highlight-yellow');
+        cardEl.classList.add(isYellow ? 'ns-gg-card-highlight-yellow' : 'ns-gg-card-highlight');
 
         const badge = document.createElement('a');
-        badge.className = `ns-gg-card-badge${allPaused ? ' is-paused' : ''}`;
-        badge.dataset.nsKey = `${id}|${labelTxt}|${allPaused}`;
+        badge.className = `ns-gg-card-badge${isYellow ? ' is-yellow' : (allPaused ? ' is-paused' : '')}`;
+        badge.dataset.nsKey = stateKey;
         badge.href = first.pageUrl;
         badge.target = '_blank';
         badge.rel = 'noopener noreferrer';
